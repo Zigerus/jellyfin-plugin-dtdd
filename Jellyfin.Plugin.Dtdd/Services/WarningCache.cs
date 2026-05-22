@@ -12,8 +12,24 @@ namespace Jellyfin.Plugin.Dtdd.Services;
 /// <summary>
 /// SQLite-backed cache for DTDD /media/{id} payloads and the cumulative topic catalog.
 /// Two tables: <c>warnings</c> (tmdb_id PK, full JSON, fetched_at) and <c>topics</c>
-/// (topic_id PK, JSON, last_seen_at). Topics accumulate from every successful Put plus
-/// any explicit SeedTopics call from a search response.
+/// (topic_id PK, JSON, last_seen_at).
+///
+/// <para>
+/// <b>Topic-catalog trigger points</b> (idempotent inserts — ON CONFLICT DO NOTHING):
+/// </para>
+/// <list type="number">
+///   <item><see cref="Put"/> — every successful /media/{id} cache write also accumulates
+///         the topics referenced in its TopicItemStats (organic growth as items are
+///         viewed).</item>
+///   <item><see cref="SeedTopics"/> — called by TopicSeeder from two deliberate
+///         triggers: first-load startup (when topics table is empty) and the
+///         weekly SeedTopicsRefreshTask scheduled task. Both seed from a curated
+///         set of /dddsearch queries; see Services/TopicSeeder.cs for the list.</item>
+/// </list>
+/// <para>
+/// Once a topic row exists, its JSON is not overwritten — a topic name/description
+/// change at DTDD will not propagate. Acceptable for v1; rare enough to ignore.
+/// </para>
 /// </summary>
 public class WarningCache
 {
@@ -201,9 +217,12 @@ public class WarningCache
     {
         using var cmd = conn.CreateCommand();
         cmd.Transaction = tx;
+        // ON CONFLICT DO NOTHING — idempotent seed semantics. Re-running on an
+        // already-populated table adds only newly-observed topics; existing rows
+        // are not touched. Topic JSON is effectively immutable post-insert (v1).
         cmd.CommandText = @"
             INSERT INTO topics (topic_id, json, last_seen_at) VALUES ($id, $j, $t)
-            ON CONFLICT(topic_id) DO UPDATE SET json = excluded.json, last_seen_at = excluded.last_seen_at;";
+            ON CONFLICT(topic_id) DO NOTHING;";
         cmd.Parameters.AddWithValue("$id", topic.Id);
         cmd.Parameters.AddWithValue("$j", JsonSerializer.Serialize(topic));
         cmd.Parameters.AddWithValue("$t", now);
