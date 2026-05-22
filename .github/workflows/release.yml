@@ -1,0 +1,168 @@
+name: Release Plugin
+
+# Triggers on a 4-part version tag (Jellyfin convention: e.g., v0.1.0.0)
+# OR manually via workflow_dispatch with an explicit version.
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+.[0-9]+'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version (4-part, e.g., 0.1.0.0). Will be tagged as v<version>.'
+        required: true
+
+permissions:
+  contents: write  # need to create releases + commit manifest.json back to main
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          # Use a token that can push back to main past branch protection (if any).
+          # GITHUB_TOKEN is sufficient for public repos without strict protection.
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Resolve version
+        id: ver
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ inputs.version }}"
+          else
+            # Strip "v" prefix from refs/tags/v0.1.0.0
+            VERSION="${GITHUB_REF#refs/tags/v}"
+          fi
+          # Sanity: must be 4-part
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Version '$VERSION' is not 4-part numeric (e.g., 0.1.0.0)"
+            exit 1
+          fi
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "TAG=v$VERSION" >> "$GITHUB_ENV"
+
+      - name: Setup .NET 9
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: Stamp version into Directory.Build.props
+        run: |
+          sed -i "s|<Version>.*</Version>|<Version>${VERSION}</Version>|" Directory.Build.props
+          sed -i "s|<AssemblyVersion>.*</AssemblyVersion>|<AssemblyVersion>${VERSION}</AssemblyVersion>|" Directory.Build.props
+          sed -i "s|<FileVersion>.*</FileVersion>|<FileVersion>${VERSION}</FileVersion>|" Directory.Build.props
+          cat Directory.Build.props
+
+      - name: Stamp version into build.yaml
+        run: |
+          sed -i "s|^version:.*|version: \"${VERSION}\"|" build.yaml
+          cat build.yaml
+
+      - name: Restore + build Release
+        run: |
+          dotnet restore
+          dotnet build Jellyfin.Plugin.Dtdd -c Release --nologo --no-restore
+
+      - name: Package zip + meta.json
+        run: |
+          set -e
+          mkdir -p staging
+          cp Jellyfin.Plugin.Dtdd/bin/Release/net9.0/Jellyfin.Plugin.Dtdd.dll staging/
+
+          TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%S")
+
+          # Pass TIMESTAMP via env to the python heredoc (single-quoted PY
+          # means shell doesn't interpolate; python reads via os.environ).
+          TIMESTAMP="$TIMESTAMP" VERSION="$VERSION" python3 - <<'PY' >staging/meta.json
+          import json, os
+          print(json.dumps({
+              "category": "General",
+              "changelog": f"v{os.environ['VERSION']}",
+              "description": "Per-user content warnings driven by doesthedogdie.com.",
+              "guid": "4479e434-651e-48f7-a2ee-bec0bdadec5e",
+              "name": "DoesTheDogDie",
+              "overview": "Per-user content warnings driven by doesthedogdie.com",
+              "owner": "Zigerus",
+              "targetAbi": "10.11.0.0",
+              "timestamp": os.environ["TIMESTAMP"],
+              "version": os.environ["VERSION"],
+          }, indent=2))
+          PY
+
+          ZIP="Jellyfin.Plugin.Dtdd_${VERSION}.zip"
+          ( cd staging && zip -j "../${ZIP}" Jellyfin.Plugin.Dtdd.dll meta.json )
+
+          CHECKSUM=$(md5sum "$ZIP" | awk '{print toupper($1)}')
+          SIZE=$(stat -c%s "$ZIP")
+          # Persist for the Release + manifest steps that follow.
+          {
+            echo "ZIP=$ZIP"
+            echo "CHECKSUM=$CHECKSUM"
+            echo "TIMESTAMP=$TIMESTAMP"
+          } >> "$GITHUB_ENV"
+          echo "Built $ZIP ($SIZE bytes, md5=$CHECKSUM)"
+
+      - name: Update manifest.json
+        run: |
+          python3 - <<'PY'
+          import json, os
+          VERSION = os.environ["VERSION"]
+          CHECKSUM = os.environ["CHECKSUM"]
+          TIMESTAMP = os.environ["TIMESTAMP"]
+          REPO = os.environ["GITHUB_REPOSITORY"]
+          TAG = os.environ["TAG"]
+
+          entry = {
+              "version": VERSION,
+              "changelog": f"v{VERSION}",
+              "targetAbi": "10.11.0.0",
+              "sourceUrl": f"https://github.com/{REPO}/releases/download/{TAG}/Jellyfin.Plugin.Dtdd_{VERSION}.zip",
+              "checksum": CHECKSUM,
+              "timestamp": TIMESTAMP,
+          }
+
+          with open("manifest.json") as f:
+              data = json.load(f)
+          plugin = data[0]
+          plugin.setdefault("versions", [])
+          # Drop any existing entry for the same version (idempotent re-runs).
+          plugin["versions"] = [v for v in plugin["versions"] if v.get("version") != VERSION]
+          plugin["versions"].insert(0, entry)
+
+          with open("manifest.json", "w") as f:
+              json.dump(data, f, indent=2)
+              f.write("\n")
+          PY
+          cat manifest.json
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.TAG }}
+          name: ${{ env.TAG }}
+          files: ${{ env.ZIP }}
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+
+      - name: Commit updated manifest.json + version stamps back to main
+        # Skip the commit-back if we're running on a detached HEAD that
+        # wasn't pushed (rare). Normal tag-push case lands here.
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add manifest.json Directory.Build.props build.yaml
+
+          if git diff --cached --quiet; then
+            echo "No tracked file changes to commit (manifest unchanged?)"
+            exit 0
+          fi
+
+          # Land on main — the tag was created from main, so HEAD should be on main.
+          # Push directly; for protected branches this needs a PAT instead.
+          git commit -m "release ${TAG}"
+          git push origin HEAD:main
