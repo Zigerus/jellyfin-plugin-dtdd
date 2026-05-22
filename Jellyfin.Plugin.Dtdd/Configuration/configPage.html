@@ -1,6 +1,7 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
+    <meta charset="utf-8">
     <title>DoesTheDogDie</title>
 </head>
 <body>
@@ -10,10 +11,108 @@
          data-require="emby-input,emby-button,emby-checkbox">
         <div data-role="content">
             <div class="content-primary">
-                <h1>DoesTheDogDie</h1>
-                <p>Configuration form lands in Phase 3 (API key, cache TTL, prefetch toggle).</p>
+                <form id="DtddConfigForm">
+                    <h2 style="margin-top: 0;">DoesTheDogDie</h2>
+                    <p style="opacity: 0.85;">
+                        Surfaces a per-user Safe / Not Safe badge on Jellyfin item detail pages, driven by
+                        <a href="https://www.doesthedogdie.com" target="_blank" rel="noopener">DoesTheDogDie.com</a>
+                        data. Each Jellyfin user configures their own phobia list from the badge gear icon.
+                    </p>
+                    <p style="opacity: 0.85;">
+                        <strong>Required companion plugin:</strong>
+                        <a href="https://github.com/n00bcodr/Jellyfin-JavaScript-Injector" target="_blank" rel="noopener">JavaScript Injector</a>
+                        — without it, the backend still serves data but the UI badge will not render. Install it,
+                        then restart Jellyfin once.
+                    </p>
+
+                    <div class="inputContainer">
+                        <label class="inputLabel inputLabelUnfocused" for="ApiKey">DoesTheDogDie API key</label>
+                        <input id="ApiKey" name="ApiKey" type="password" is="emby-input" autocomplete="off" />
+                        <div class="fieldDescription">
+                            Get one at <a href="https://www.doesthedogdie.com/account" target="_blank" rel="noopener">doesthedogdie.com/account</a>
+                            (free account → request API access). The key is sent in the <code>X-API-KEY</code> header on
+                            every outbound request and is never logged or echoed elsewhere.
+                        </div>
+                    </div>
+
+                    <div class="inputContainer">
+                        <label class="inputLabel inputLabelUnfocused" for="CacheTtlDays">Cache TTL (days)</label>
+                        <input id="CacheTtlDays" name="CacheTtlDays" type="number" is="emby-input" min="1" max="365" />
+                        <div class="fieldDescription">
+                            How long to keep cached DTDD responses before refetching. Default 14. Lower values
+                            mean fresher data but more API hits.
+                        </div>
+                    </div>
+
+                    <div class="checkboxContainer checkboxContainer-withDescription">
+                        <label class="emby-checkbox-label">
+                            <input id="PrefetchEnabled" name="PrefetchEnabled" type="checkbox" is="emby-checkbox" />
+                            <span>Enable the weekly prefetch scheduled task</span>
+                        </label>
+                        <div class="fieldDescription">
+                            When on, a weekly task scans your Movies and Series library and prefetches missing
+                            DTDD warnings into the cache. Default OFF — politer to DTDD's API until you trust
+                            cache stability. Triggers, schedule, and per-run logs are visible at Dashboard →
+                            Scheduled Tasks → "Prefetch DoesTheDogDie warnings".
+                        </div>
+                    </div>
+
+                    <div class="inputContainer">
+                        <label class="inputLabel inputLabelUnfocused" for="DtddBaseUrl">DoesTheDogDie base URL</label>
+                        <input id="DtddBaseUrl" name="DtddBaseUrl" type="text" is="emby-input" />
+                        <div class="fieldDescription">
+                            Advanced. Leave at the default unless DTDD moves to a different host or you are
+                            routing through a proxy.
+                        </div>
+                    </div>
+
+                    <div style="margin-top: 1.5em;">
+                        <button is="emby-button" type="submit" class="raised button-submit block emby-button">
+                            <span>Save</span>
+                        </button>
+                    </div>
+                </form>
             </div>
         </div>
+
+        <script type="text/javascript">
+            (function () {
+                var DtddConfig = {
+                    pluginUniqueId: '4479e434-651e-48f7-a2ee-bec0bdadec5e'
+                };
+
+                var page = document.querySelector('#DtddConfigPage');
+                var form = document.querySelector('#DtddConfigForm');
+
+                page.addEventListener('pageshow', function () {
+                    Dashboard.showLoadingMsg();
+                    ApiClient.getPluginConfiguration(DtddConfig.pluginUniqueId).then(function (config) {
+                        document.querySelector('#ApiKey').value = config.ApiKey || '';
+                        document.querySelector('#CacheTtlDays').value = config.CacheTtlDays != null ? config.CacheTtlDays : 14;
+                        document.querySelector('#PrefetchEnabled').checked = !!config.PrefetchEnabled;
+                        document.querySelector('#DtddBaseUrl').value = config.DtddBaseUrl || 'https://www.doesthedogdie.com';
+                        Dashboard.hideLoadingMsg();
+                    });
+                });
+
+                form.addEventListener('submit', function (e) {
+                    e.preventDefault();
+                    Dashboard.showLoadingMsg();
+                    ApiClient.getPluginConfiguration(DtddConfig.pluginUniqueId).then(function (config) {
+                        config.ApiKey = document.querySelector('#ApiKey').value.trim();
+                        var ttl = parseInt(document.querySelector('#CacheTtlDays').value, 10);
+                        config.CacheTtlDays = isNaN(ttl) || ttl < 1 ? 14 : ttl;
+                        config.PrefetchEnabled = document.querySelector('#PrefetchEnabled').checked;
+                        var baseUrl = document.querySelector('#DtddBaseUrl').value.trim();
+                        config.DtddBaseUrl = baseUrl || 'https://www.doesthedogdie.com';
+                        ApiClient.updatePluginConfiguration(DtddConfig.pluginUniqueId, config).then(function (result) {
+                            Dashboard.processPluginConfigurationUpdateResult(result);
+                        });
+                    });
+                    return false;
+                });
+            })();
+        </script>
     </div>
 </body>
 </html>
