@@ -150,8 +150,14 @@
         var wrapper = document.createElement('span');
         wrapper.className = 'dtdd-badge-wrapper';
 
+        // Defensive read — server emits camelCase via [JsonPropertyName] but
+        // accept PascalCase as a fallback so a future serializer-config drift
+        // doesn't surface as "DTDD: undefined" again.
+        var state = safety.state || safety.State;
+        var matchedPhobias = safety.matchedPhobias || safety.MatchedPhobias || [];
+
         var badge;
-        switch (safety.state) {
+        switch (state) {
             case 'safe':
                 badge = document.createElement('span');
                 badge.className = 'dtdd-badge dtdd-safe';
@@ -160,10 +166,10 @@
             case 'not_safe':
                 badge = document.createElement('span');
                 badge.className = 'dtdd-badge dtdd-not-safe';
-                var n = (safety.matchedPhobias || []).length;
+                var n = matchedPhobias.length;
                 badge.textContent = 'DTDD: Not Safe (' + n + ' match' + (n === 1 ? '' : 'es') + ')';
-                if (safety.matchedPhobias && safety.matchedPhobias.length) {
-                    badge.title = safety.matchedPhobias.map(function (p) { return p.name; }).join(', ');
+                if (matchedPhobias.length) {
+                    badge.title = matchedPhobias.map(function (p) { return p.name || p.Name; }).join(', ');
                 }
                 break;
             case 'unknown':
@@ -189,7 +195,7 @@
             default:
                 badge = document.createElement('span');
                 badge.className = 'dtdd-badge dtdd-unknown';
-                badge.textContent = 'DTDD: ' + safety.state;
+                badge.textContent = 'DTDD: ' + (state || 'unknown');
         }
 
         wrapper.appendChild(badge);
@@ -479,7 +485,7 @@
         saveBtn.className = 'raised button-submit emby-button';
         saveBtn.style.padding = '0.45em 1.1em';
         saveBtn.style.borderRadius = '0.3em';
-        saveBtn.innerHTML = '<span>Save &amp; scan library</span>';
+        saveBtn.innerHTML = '<span>Save phobias</span>';
         saveBtn.addEventListener('click', async function () {
             var ids = [];
             for (var k in selected) if (selected[k]) ids.push(Number(k));
@@ -497,21 +503,15 @@
                 saveBtn.disabled = false;
                 return;
             }
-            setStatus('Saved. Starting background library scan…');
-            try {
-                await api('DTDD/scan', { method: 'POST' });
-            } catch (err) {
-                // non-fatal — prefs are saved either way
-                warn('scan kickoff failed', err);
-            }
-            setStatus('Scan running in the background. Badges will populate as items finish.');
-            // Re-render badge for current item if any
+            setStatus('Saved. Library will be scanned by the weekly task (or by the admin manually triggering "Prefetch DoesTheDogDie warnings" in Dashboard → Scheduled Tasks).');
+            // Re-render badge for the item the user was on, so they see the
+            // updated verdict for that title immediately.
             lastRenderedItemId = null;
             var container = findDetailContainer();
             if (container && currentItemId) {
                 await renderBadgeFor(currentItemId, container);
             }
-            setTimeout(function () { dialog.close(); }, 800);
+            setTimeout(function () { dialog.close(); }, 1500);
         });
 
         footer.appendChild(cancelBtn);
