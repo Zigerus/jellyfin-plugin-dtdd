@@ -40,11 +40,61 @@ _Placeholder — to be added after Phase 3 lands the UI._
 
 ## Development
 
+### Build
+
 ```bash
 dotnet build
 ```
 
 Output DLL: `Jellyfin.Plugin.Dtdd/bin/Debug/net9.0/Jellyfin.Plugin.Dtdd.dll`
+
+### Sideload onto a running Jellyfin server
+
+While Phase 4 (release pipeline + manifest hosting) is deferred, the development cycle is: build → package → drop the DLL into Jellyfin's plugins dir → restart Jellyfin → verify in Dashboard → Plugins.
+
+The Servarr host (192.168.50.129) runs `lscr.io/linuxserver/jellyfin:latest` with a bind mount at `/home/zigerus/appdata/jellyfin` → `/config`. So Jellyfin reads plugins from `/home/zigerus/appdata/jellyfin/plugins/` on the host filesystem.
+
+**One-shot sideload via the helper script:**
+
+```bash
+./scripts/sideload.sh
+```
+
+The script:
+1. Runs `dotnet build -c Release`.
+2. Reads `<Version>` from `Directory.Build.props`.
+3. Bundles the DLL + a generated `meta.json` into `Jellyfin.Plugin.Dtdd_<version>.zip`.
+4. `scp`'s the zip to `servarr:/tmp/`.
+5. Unpacks into `/home/zigerus/appdata/jellyfin/plugins/DoesTheDogDie_<version>/`.
+6. **Stops and prompts for explicit confirmation** before restarting Jellyfin (production restart is destructive per the strict-gate rule in [zigerusgames/CLAUDE.md](../zigerusgames/CLAUDE.md)).
+7. On confirm: `ssh servarr docker restart jellyfin`.
+
+**Manual sideload** (if the script doesn't fit a case):
+
+```bash
+# On HP Mini
+dotnet build -c Release
+VERSION="$(grep -oP '<Version>\K[^<]+' Directory.Build.props)"
+mkdir -p /tmp/dtdd-pkg
+cp Jellyfin.Plugin.Dtdd/bin/Release/net9.0/Jellyfin.Plugin.Dtdd.dll /tmp/dtdd-pkg/
+# write meta.json (see scripts/sideload.sh for the canonical template)
+cd /tmp/dtdd-pkg && zip "Jellyfin.Plugin.Dtdd_$VERSION.zip" Jellyfin.Plugin.Dtdd.dll meta.json
+scp "Jellyfin.Plugin.Dtdd_$VERSION.zip" servarr:/tmp/
+
+# On Servarr (matches existing parent-dir ownership zigerus:zigerus; container can read it)
+ssh servarr "mkdir -p /home/zigerus/appdata/jellyfin/plugins/DoesTheDogDie_$VERSION && cd /home/zigerus/appdata/jellyfin/plugins/DoesTheDogDie_$VERSION && unzip -o /tmp/Jellyfin.Plugin.Dtdd_$VERSION.zip && rm /tmp/Jellyfin.Plugin.Dtdd_$VERSION.zip"
+
+# Confirm before restarting — this WILL interrupt Jellyfin streams
+ssh servarr 'docker restart jellyfin'
+```
+
+**Verify the install:** Jellyfin Dashboard → Plugins. `DoesTheDogDie 0.1.0.0` should appear. Jellyfin logs (`docker logs jellyfin --tail 100`) will show plugin load on startup; look for the GUID `4479e434-651e-48f7-a2ee-bec0bdadec5e`.
+
+**Cleanup an old version:** Jellyfin loads every subdirectory under `plugins/`, so when a new version comes in, remove the previous folder to avoid duplicate-instance warnings:
+
+```bash
+ssh servarr 'rm -rf /home/zigerus/appdata/jellyfin/plugins/DoesTheDogDie_0.0.x'
+```
 
 ## Roadmap (post-v1)
 
