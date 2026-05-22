@@ -1,0 +1,41 @@
+# .NET build artifacts
+bin/
+obj/
+*.user
+*.userosscache
+*.suo
+*.sln.docstates
+project.lock.json
+project.fragment.lock.json
+artifacts/
+out/
+
+# Compiled binaries
+*.dll
+*.exe
+*.pdb
+
+# IDE
+.vs/
+.vscode/
+.idea/
+*.swp
+*~
+
+# Test
+[Tt]est[Rr]esult*/
+*.coverage
+*.coveragexml
+
+# Secrets (DTDD API key, etc.) — must never enter the repo
+.env
+.env.local
+.env.*.local
+secrets.json
+appsettings.local.json
+*.pfx
+*.snk
+
+# OS
+.DS_Store
+Thumbs.db
