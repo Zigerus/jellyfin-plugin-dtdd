@@ -18,5 +18,11 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         serviceCollection.AddSingleton<DtddClient>();
         serviceCollection.AddSingleton<WarningCache>();
         serviceCollection.AddSingleton<UserPreferenceStore>();
+        serviceCollection.AddSingleton<TopicSeeder>();
+
+        // First-load seed hook (equivalent to OnInstall — Jellyfin's BasePlugin
+        // has no dedicated install-time callback in 10.11.x; IHostedService runs
+        // once when the DI container starts with our plugin loaded).
+        serviceCollection.AddHostedService<TopicSeederStartupService>();
     }
 }
