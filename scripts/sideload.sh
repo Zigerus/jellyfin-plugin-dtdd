@@ -111,7 +111,15 @@ EOF
 
 ZIP_NAME="Jellyfin.Plugin.Dtdd_$VERSION.zip"
 ZIP_PATH="$STAGE/$ZIP_NAME"
-( cd "$STAGE" && zip -q "$ZIP_NAME" Jellyfin.Plugin.Dtdd.dll meta.json )
+# Use Python's zipfile rather than `zip` so this script works on hosts where
+# the `zip` binary isn't installed (HP Mini doesn't ship it by default).
+python3 -c "
+import sys, zipfile
+stage, zip_name = sys.argv[1], sys.argv[2]
+with zipfile.ZipFile(f'{stage}/{zip_name}', 'w', zipfile.ZIP_DEFLATED) as z:
+    z.write(f'{stage}/Jellyfin.Plugin.Dtdd.dll', 'Jellyfin.Plugin.Dtdd.dll')
+    z.write(f'{stage}/meta.json', 'meta.json')
+" "$STAGE" "$ZIP_NAME"
 echo "==> Packaged $ZIP_NAME ($(stat -c%s "$ZIP_PATH") bytes)"
 
 # -----------------------------------------------------------------------------
@@ -128,12 +136,17 @@ echo "==> Unpacking on $REMOTE_HOST into $REMOTE_PLUGIN_DIR"
 # Unquoted heredoc is deliberate: all $VARS here are LOCAL (computed on HP Mini
 # from the build); we want them substituted before the script is piped to the
 # remote bash. Nothing in the body needs to expand server-side.
+# Servarr doesn't ship `unzip` either, so use python's zipfile module — same
+# approach as the local packaging step above for consistency.
 # shellcheck disable=SC2087
 ssh "$REMOTE_HOST" bash -s <<REMOTE_EOF
 set -euo pipefail
 mkdir -p "$REMOTE_PLUGIN_DIR"
-cd "$REMOTE_PLUGIN_DIR"
-unzip -oq "$REMOTE_TMP/$ZIP_NAME"
+python3 -c "
+import zipfile
+with zipfile.ZipFile('$REMOTE_TMP/$ZIP_NAME') as z:
+    z.extractall('$REMOTE_PLUGIN_DIR')
+"
 rm -f "$REMOTE_TMP/$ZIP_NAME"
 ls -la "$REMOTE_PLUGIN_DIR"
 REMOTE_EOF
