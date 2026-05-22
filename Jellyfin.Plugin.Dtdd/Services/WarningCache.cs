@@ -1,10 +1,212 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Text.Json;
+using Jellyfin.Plugin.Dtdd.Api.Models;
+using MediaBrowser.Common.Configuration;
+using Microsoft.Data.Sqlite;
+using Microsoft.Extensions.Logging;
+
 namespace Jellyfin.Plugin.Dtdd.Services;
 
+/// <summary>
+/// SQLite-backed cache for DTDD /media/{id} payloads and the cumulative topic catalog.
+/// Two tables: <c>warnings</c> (tmdb_id PK, full JSON, fetched_at) and <c>topics</c>
+/// (topic_id PK, JSON, last_seen_at). Topics accumulate from every successful Put plus
+/// any explicit SeedTopics call from a search response.
+/// </summary>
 public class WarningCache
 {
-    // Phase 2: SQLite-backed cache stored in IApplicationPaths plugin data dir.
-    // Schema: tmdbId PK, json blob, fetched_at timestamp.
-    // Methods: Get(tmdbId), Put(tmdbId, data), ExpireOlderThan(days).
-    // Concurrent reads/writes safe (Microsoft.Data.Sqlite + WAL).
-    // Also seeds/maintains a topics table (cumulative from /media/{id} responses).
+    private const string SchemaSql = @"
+        PRAGMA journal_mode=WAL;
+        CREATE TABLE IF NOT EXISTS warnings (
+            tmdb_id    INTEGER NOT NULL PRIMARY KEY,
+            json       TEXT    NOT NULL,
+            fetched_at INTEGER NOT NULL
+        ) WITHOUT ROWID;
+        CREATE INDEX IF NOT EXISTS idx_warnings_fetched_at ON warnings(fetched_at);
+        CREATE TABLE IF NOT EXISTS topics (
+            topic_id     INTEGER NOT NULL PRIMARY KEY,
+            json         TEXT    NOT NULL,
+            last_seen_at INTEGER NOT NULL
+        ) WITHOUT ROWID;";
+
+    private readonly string _connectionString;
+    private readonly ILogger<WarningCache> _logger;
+
+    public WarningCache(IApplicationPaths applicationPaths, ILogger<WarningCache> logger)
+    {
+        _logger = logger;
+
+        var dir = Path.Combine(applicationPaths.DataPath, "Jellyfin.Plugin.Dtdd");
+        Directory.CreateDirectory(dir);
+        var dbPath = Path.Combine(dir, "cache.db");
+
+        _connectionString = new SqliteConnectionStringBuilder
+        {
+            DataSource = dbPath,
+            Mode = SqliteOpenMode.ReadWriteCreate,
+            Cache = SqliteCacheMode.Shared,
+        }.ToString();
+
+        InitializeSchema();
+        _logger.LogInformation("DTDD warning cache initialized at {DbPath}", dbPath);
+    }
+
+    /// <summary>
+    /// Returns the cached DTDD details for the given TMDB ID, or null if absent
+    /// or older than the configured CacheTtlDays. Callers treat null as cache-miss
+    /// and call <see cref="Put"/> after fetching fresh data.
+    /// </summary>
+    public DtddMediaDetails? Get(int tmdbId)
+    {
+        var ttlDays = Plugin.Instance?.Configuration.CacheTtlDays ?? 14;
+        var cutoff = DateTimeOffset.UtcNow.AddDays(-ttlDays).ToUnixTimeSeconds();
+
+        using var conn = Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT json FROM warnings WHERE tmdb_id = $id AND fetched_at >= $cutoff;";
+        cmd.Parameters.AddWithValue("$id", tmdbId);
+        cmd.Parameters.AddWithValue("$cutoff", cutoff);
+
+        if (cmd.ExecuteScalar() is not string json)
+        {
+            return null;
+        }
+
+        try
+        {
+            return JsonSerializer.Deserialize<DtddMediaDetails>(json);
+        }
+        catch (JsonException ex)
+        {
+            _logger.LogWarning(ex, "Cached DTDD JSON corrupt for tmdb {TmdbId}; treating as miss", tmdbId);
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Upserts the cache row and accumulates any topics referenced by the payload.
+    /// </summary>
+    public void Put(int tmdbId, DtddMediaDetails details)
+    {
+        var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        var json = JsonSerializer.Serialize(details);
+
+        using var conn = Open();
+        using var tx = conn.BeginTransaction();
+
+        using (var upsert = conn.CreateCommand())
+        {
+            upsert.Transaction = tx;
+            upsert.CommandText = @"
+                INSERT INTO warnings (tmdb_id, json, fetched_at) VALUES ($id, $json, $t)
+                ON CONFLICT(tmdb_id) DO UPDATE SET json = excluded.json, fetched_at = excluded.fetched_at;";
+            upsert.Parameters.AddWithValue("$id", tmdbId);
+            upsert.Parameters.AddWithValue("$json", json);
+            upsert.Parameters.AddWithValue("$t", now);
+            upsert.ExecuteNonQuery();
+        }
+
+        foreach (var stat in details.TopicItemStats)
+        {
+            if (stat.Topic is not null)
+            {
+                SeedTopicInner(conn, tx, stat.Topic, now);
+            }
+        }
+
+        tx.Commit();
+    }
+
+    /// <summary>
+    /// Accumulate topics observed in a search response (where <c>topics[]</c> is
+    /// returned alongside <c>items[]</c>). Called by the controller's /topics endpoint
+    /// path when bootstrapping or refreshing the catalog.
+    /// </summary>
+    public void SeedTopics(IEnumerable<DtddTopic> topics)
+    {
+        var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        using var conn = Open();
+        using var tx = conn.BeginTransaction();
+
+        foreach (var topic in topics)
+        {
+            SeedTopicInner(conn, tx, topic, now);
+        }
+
+        tx.Commit();
+    }
+
+    /// <summary>
+    /// Returns every topic ever observed, ordered by topic_id.
+    /// </summary>
+    public List<DtddTopic> GetTopics()
+    {
+        var result = new List<DtddTopic>();
+        using var conn = Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT json FROM topics ORDER BY topic_id;";
+
+        using var reader = cmd.ExecuteReader();
+        while (reader.Read())
+        {
+            try
+            {
+                var topic = JsonSerializer.Deserialize<DtddTopic>(reader.GetString(0));
+                if (topic is not null)
+                {
+                    result.Add(topic);
+                }
+            }
+            catch (JsonException ex)
+            {
+                _logger.LogDebug(ex, "Skipping corrupt topic row");
+            }
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Deletes warnings older than the given age. Returns the row count removed.
+    /// Called by the prefetch task; topics rows are never expired (catalog grows monotonically).
+    /// </summary>
+    public int ExpireOlderThan(int days)
+    {
+        var cutoff = DateTimeOffset.UtcNow.AddDays(-days).ToUnixTimeSeconds();
+        using var conn = Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "DELETE FROM warnings WHERE fetched_at < $cutoff;";
+        cmd.Parameters.AddWithValue("$cutoff", cutoff);
+        return cmd.ExecuteNonQuery();
+    }
+
+    private void InitializeSchema()
+    {
+        using var conn = Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = SchemaSql;
+        cmd.ExecuteNonQuery();
+    }
+
+    private SqliteConnection Open()
+    {
+        var conn = new SqliteConnection(_connectionString);
+        conn.Open();
+        return conn;
+    }
+
+    private static void SeedTopicInner(SqliteConnection conn, SqliteTransaction tx, DtddTopic topic, long now)
+    {
+        using var cmd = conn.CreateCommand();
+        cmd.Transaction = tx;
+        cmd.CommandText = @"
+            INSERT INTO topics (topic_id, json, last_seen_at) VALUES ($id, $j, $t)
+            ON CONFLICT(topic_id) DO UPDATE SET json = excluded.json, last_seen_at = excluded.last_seen_at;";
+        cmd.Parameters.AddWithValue("$id", topic.Id);
+        cmd.Parameters.AddWithValue("$j", JsonSerializer.Serialize(topic));
+        cmd.Parameters.AddWithValue("$t", now);
+        cmd.ExecuteNonQuery();
+    }
 }
