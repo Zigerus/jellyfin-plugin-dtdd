@@ -83,9 +83,8 @@
             '.dtdd-picker-topic { display: flex; align-items: center; gap: 0.45em; padding: 0.2em 0; font-size: 0.95em; }',
             '.dtdd-picker-footer { display: flex; gap: 0.5em; justify-content: flex-end; margin-top: 0.75em; padding-top: 0.65em; border-top: 1px solid var(--theme-card-border-color, rgba(255,255,255,0.1)); }',
             '.dtdd-picker-button { padding: 0.45em 1.1em; border-radius: 0.3em; cursor: pointer; font: inherit; border: 1px solid currentColor; background: transparent; color: inherit; }',
-            '.dtdd-picker-button.dtdd-primary { background: var(--theme-accent-color, currentColor); color: var(--theme-button-text-color, #fff); border-color: transparent; }',
-            '.dtdd-settings-entry { display: flex; align-items: center; gap: 1em; padding: 1em; cursor: pointer; border-radius: 0.3em; }',
-            '.dtdd-settings-entry:hover { background: rgba(255,255,255,0.05); }'
+            '.dtdd-picker-button.dtdd-primary { background: var(--theme-accent-color, currentColor); color: var(--theme-button-text-color, #fff); border-color: transparent; }'
+            // Settings entry styling: inherit from native emby-button / listItem-border / listItem classes. No custom CSS.
         ].join('\n');
         document.head.appendChild(style);
     }
@@ -254,60 +253,64 @@
     // Settings menu injection
     // -----------------------------------------------------------------------
 
-    // Selectors to find the user-Settings-page list container, in order of
-    // specificity. We append our entry to the end of the matched list.
-    var SETTINGS_LIST_SELECTORS = [
-        '.userPreferences',
-        '.actionSheetContent',
-        '.page:not(.hide) .padded-left.padded-right > .listItem',  // first listItem → parent
-        '.page:not(.hide) > .padded-bottom-page > a',              // some Jellyfin layouts
-        '#userPreferencesPage .padded-bottom-page',
-        '.page:not(.hide) a.listItem'                              // generic listItem on visible page
-    ];
-
-    function isOnSettingsPage() {
+    // Detect Jellyfin's user-settings page only — confirmed via DOM probe:
+    // the URL hash is "#/mypreferencesmenu" and the page id is
+    // "myPreferencesMenuPage" (a child of .verticalSection.
+    // verticalSection-extrabottompadding holds the Profile / Quick Connect /
+    // ... list).
+    function isOnSettingsMenuPage() {
         var hash = (window.location.hash || '').toLowerCase();
-        return hash.indexOf('userpreferences') >= 0 ||
-               hash.indexOf('mypreferencesmenu') >= 0 ||
-               hash.indexOf('mypreferences') >= 0;
+        return hash.indexOf('mypreferencesmenu') >= 0;
     }
 
     function injectSettingsEntry() {
-        if (!isOnSettingsPage()) return;
+        if (!isOnSettingsMenuPage()) return;
         if (document.querySelector('.dtdd-settings-entry')) return; // already injected
 
-        // Find a sample list-item to use as the parent container.
-        var sample = null;
-        var allLinks = document.querySelectorAll('.page:not(.hide) a.listItem, .page:not(.hide) button.listItem');
-        if (allLinks.length > 0) {
-            sample = allLinks[allLinks.length - 1];
-        }
-
-        if (!sample) {
-            if (DEBUG) log('settings page detected but no listItem found yet');
+        // The first .verticalSection.verticalSection-extrabottompadding on
+        // #myPreferencesMenuPage is the user prefs section (above the User /
+        // Sign Out section). Append our entry there so it sits with Profile /
+        // Quick Connect / Display / etc.
+        var section = document.querySelector('#myPreferencesMenuPage:not(.hide) .verticalSection.verticalSection-extrabottompadding');
+        if (!section) {
+            if (DEBUG) log('settings page detected but section not present yet (will retry on next mutation)');
             return;
         }
 
-        var parent = sample.parentElement;
-        if (!parent) return;
-
-        // Mimic an existing entry's structure for visual consistency.
-        var entry = document.createElement('button');
-        entry.type = 'button';
-        entry.className = (sample.className || '') + ' dtdd-settings-entry';
+        // Match Jellyfin's exact pattern observed via DOM probe:
+        //   <a class="emby-button lnkXxxPreferences listItem-border"
+        //      href="..." style="display: block; margin: 0px; padding: 0px;">
+        //     <div class="listItem">
+        //       <span class="material-icons listItemIcon listItemIcon-transparent <iconName>" aria-hidden="true"></span>
+        //       <div class="listItemBody">
+        //         <div class="listItemBodyText"><label></div>
+        //       </div>
+        //     </div>
+        //   </a>
+        //
+        // The icon-name class (e.g., "person", "tv", "home") is what Jellyfin
+        // uses to pick the glyph — we ALSO include the icon name as inner
+        // text so Material Icons ligature handles it even if Jellyfin's CSS
+        // doesn't recognise our class name.
+        var entry = document.createElement('a');
+        entry.className = 'emby-button listItem-border dtdd-settings-entry';
+        entry.href = '#';
+        entry.setAttribute('style', 'display: block; margin: 0px; padding: 0px;');
         entry.innerHTML = [
-            '<span class="material-icons listItemIcon listItemIcon-transparent" aria-hidden="true" style="font-size: 1.5em; opacity: 0.85;">warning</span>',
-            '<div class="listItemBody actionsheetListItemBody">',
-            '  <div class="listItemBodyText">DoesTheDogDie</div>',
-            '  <div class="listItemBodyText secondary listItemBodyText-secondary">Pick the phobia topics to flag on item detail pages</div>',
+            '<div class="listItem">',
+            '  <span class="material-icons listItemIcon listItemIcon-transparent warning" aria-hidden="true">warning</span>',
+            '  <div class="listItemBody">',
+            '    <div class="listItemBodyText">DoesTheDogDie</div>',
+            '  </div>',
             '</div>'
         ].join('');
         entry.addEventListener('click', function (e) {
             e.preventDefault();
+            e.stopPropagation();
             openPicker(null);
         });
 
-        parent.appendChild(entry);
+        section.appendChild(entry);
         if (DEBUG) log('settings entry injected');
     }
 
