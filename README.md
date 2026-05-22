@@ -53,7 +53,7 @@ Output DLL: `Jellyfin.Plugin.Dtdd/bin/Debug/net9.0/Jellyfin.Plugin.Dtdd.dll`
 
 While Phase 4 (release pipeline + manifest hosting) is deferred, the development cycle is: build → package → drop the DLL into Jellyfin's plugins dir → restart Jellyfin → verify in Dashboard → Plugins.
 
-The MediaHost host (<host-ip>) runs `lscr.io/linuxserver/jellyfin:latest` with a bind mount at `/home/zigerus/appdata/jellyfin` → `/config`. So Jellyfin reads plugins from `/home/zigerus/appdata/jellyfin/plugins/` on the host filesystem.
+The MediaHost host (<host-ip>) runs `lscr.io/linuxserver/jellyfin:latest` with a bind mount at `/home/zigerus/appdata/jellyfin` → `/config`. Jellyfin reads plugins from `/config/data/plugins/` inside the container, which maps to `/home/zigerus/appdata/jellyfin/data/plugins/` on the host filesystem. (Existing plugins like JavaScript Injector and Intro Skipper live here too.)
 
 **One-shot sideload via the helper script:**
 
@@ -67,7 +67,7 @@ The script:
 2. Reads `<Version>` from `Directory.Build.props`.
 3. Bundles the DLL + a generated `meta.json` into `Jellyfin.Plugin.Dtdd_<version>.zip`.
 4. `scp`'s the zip to `mediahost:/tmp/`.
-5. Unpacks into `/home/zigerus/appdata/jellyfin/plugins/DoesTheDogDie_<version>/`.
+5. Unpacks into `/home/zigerus/appdata/jellyfin/data/plugins/DoesTheDogDie_<version>/`.
 6. **Stops and prompts for explicit confirmation** before restarting Jellyfin (production restart is destructive per the strict-gate rule in the maintainer's private notes).
 7. On confirm: `ssh mediahost docker restart jellyfin`.
 
@@ -84,7 +84,7 @@ cd /tmp/dtdd-pkg && zip "Jellyfin.Plugin.Dtdd_$VERSION.zip" Jellyfin.Plugin.Dtdd
 scp "Jellyfin.Plugin.Dtdd_$VERSION.zip" mediahost:/tmp/
 
 # On MediaHost (matches existing parent-dir ownership zigerus:zigerus; container can read it)
-ssh mediahost "mkdir -p /home/zigerus/appdata/jellyfin/plugins/DoesTheDogDie_$VERSION && cd /home/zigerus/appdata/jellyfin/plugins/DoesTheDogDie_$VERSION && unzip -o /tmp/Jellyfin.Plugin.Dtdd_$VERSION.zip && rm /tmp/Jellyfin.Plugin.Dtdd_$VERSION.zip"
+ssh mediahost "mkdir -p /home/zigerus/appdata/jellyfin/data/plugins/DoesTheDogDie_$VERSION && cd /home/zigerus/appdata/jellyfin/data/plugins/DoesTheDogDie_$VERSION && unzip -o /tmp/Jellyfin.Plugin.Dtdd_$VERSION.zip && rm /tmp/Jellyfin.Plugin.Dtdd_$VERSION.zip"
 
 # Confirm before restarting — this WILL interrupt Jellyfin streams
 ssh mediahost 'docker restart jellyfin'
@@ -95,7 +95,7 @@ ssh mediahost 'docker restart jellyfin'
 **Cleanup an old version:** Jellyfin loads every subdirectory under `plugins/`, so when a new version comes in, remove the previous folder to avoid duplicate-instance warnings:
 
 ```bash
-ssh mediahost 'rm -rf /home/zigerus/appdata/jellyfin/plugins/DoesTheDogDie_0.0.x'
+ssh mediahost 'rm -rf /home/zigerus/appdata/jellyfin/data/plugins/DoesTheDogDie_0.0.x'
 ```
 
 ## Known limitations (v1)
