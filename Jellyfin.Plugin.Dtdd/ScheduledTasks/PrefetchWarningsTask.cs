@@ -6,6 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Data.Enums;
 using Jellyfin.Plugin.Dtdd.Api.Models;
+using Jellyfin.Plugin.Dtdd.Providers;
 using Jellyfin.Plugin.Dtdd.Services;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.TV;
@@ -186,6 +187,9 @@ public class PrefetchWarningsTask : IScheduledTask
         if (details is not null)
         {
             _cache.Put(tmdbId, details);
+            // Proactively warm the Dtdd ProviderId so the external-IDs badge
+            // shows without waiting for the lazy /safety backfill path.
+            await DtddProviderIdBackfill.TryBackfillAsync(item, details.Item.Id, _logger, cancellationToken).ConfigureAwait(false);
         }
 
         return true;
