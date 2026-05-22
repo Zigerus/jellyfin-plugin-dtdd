@@ -11,106 +11,330 @@
          data-require="emby-input,emby-button,emby-checkbox">
         <div data-role="content">
             <div class="content-primary">
-                <form id="DtddConfigForm">
-                    <h2 style="margin-top: 0;">DoesTheDogDie</h2>
-                    <p style="opacity: 0.85;">
-                        Surfaces a per-user Safe / Not Safe badge on Jellyfin item detail pages, driven by
-                        <a href="https://www.doesthedogdie.com" target="_blank" rel="noopener">DoesTheDogDie.com</a>
-                        data. Each Jellyfin user configures their own phobia list from the badge gear icon.
-                    </p>
-                    <p style="opacity: 0.85;">
-                        <strong>Required companion plugin:</strong>
-                        <a href="https://github.com/n00bcodr/Jellyfin-JavaScript-Injector" target="_blank" rel="noopener">JavaScript Injector</a>
-                        — without it, the backend still serves data but the UI badge will not render. Install it,
-                        then restart Jellyfin once.
-                    </p>
 
-                    <div class="inputContainer">
-                        <label class="inputLabel inputLabelUnfocused" for="ApiKey">DoesTheDogDie API key</label>
-                        <input id="ApiKey" name="ApiKey" type="password" is="emby-input" autocomplete="off" />
-                        <div class="fieldDescription">
-                            Get one at <a href="https://www.doesthedogdie.com/account" target="_blank" rel="noopener">doesthedogdie.com/account</a>
-                            (free account → request API access). The key is sent in the <code>X-API-KEY</code> header on
-                            every outbound request and is never logged or echoed elsewhere.
-                        </div>
-                    </div>
+                <h2 style="margin-top: 0;">DoesTheDogDie</h2>
+                <p style="opacity: 0.85;">
+                    Pick the topics you want flagged. Open any movie or TV series detail page after saving
+                    to see Safe / Not Safe / Unknown for that title. Each Jellyfin user has their own list.
+                </p>
 
-                    <div class="inputContainer">
-                        <label class="inputLabel inputLabelUnfocused" for="CacheTtlDays">Cache TTL (days)</label>
-                        <input id="CacheTtlDays" name="CacheTtlDays" type="number" is="emby-input" min="1" max="365" />
-                        <div class="fieldDescription">
-                            How long to keep cached DTDD responses before refetching. Default 14. Lower values
-                            mean fresher data but more API hits.
-                        </div>
-                    </div>
-
-                    <div class="checkboxContainer checkboxContainer-withDescription">
-                        <label class="emby-checkbox-label">
-                            <input id="PrefetchEnabled" name="PrefetchEnabled" type="checkbox" is="emby-checkbox" />
-                            <span>Enable the weekly prefetch scheduled task</span>
-                        </label>
-                        <div class="fieldDescription">
-                            When on, a weekly task scans your Movies and Series library and prefetches missing
-                            DTDD warnings into the cache. Default OFF — politer to DTDD's API until you trust
-                            cache stability. Triggers, schedule, and per-run logs are visible at Dashboard →
-                            Scheduled Tasks → "Prefetch DoesTheDogDie warnings".
-                        </div>
-                    </div>
-
-                    <div class="inputContainer">
-                        <label class="inputLabel inputLabelUnfocused" for="DtddBaseUrl">DoesTheDogDie base URL</label>
-                        <input id="DtddBaseUrl" name="DtddBaseUrl" type="text" is="emby-input" />
-                        <div class="fieldDescription">
-                            Advanced. Leave at the default unless DTDD moves to a different host or you are
-                            routing through a proxy.
-                        </div>
-                    </div>
-
-                    <div style="margin-top: 1.5em;">
-                        <button is="emby-button" type="submit" class="raised button-submit block emby-button">
-                            <span>Save</span>
+                <!-- ============================================================
+                     PICKER (visible to every user)
+                     ============================================================ -->
+                <div id="DtddPickerSection">
+                    <div style="display: flex; gap: 0.5em; align-items: center; margin-bottom: 0.5em;">
+                        <span id="DtddPickerCount" style="opacity: 0.65;">0 selected</span>
+                        <span style="flex: 1;"></span>
+                        <button id="DtddRefreshCatalog" is="emby-button" type="button" class="emby-button">
+                            <span>Refresh catalog</span>
                         </button>
                     </div>
-                </form>
+
+                    <input id="DtddSearch" type="text" placeholder="Search topics..." is="emby-input" style="width: 100%; box-sizing: border-box; margin-bottom: 0.5em;" />
+
+                    <div id="DtddTopicsList" style="max-height: 45vh; overflow-y: auto; border: 1px solid var(--theme-card-border-color, rgba(255,255,255,0.15)); border-radius: 0.3em; padding: 0.5em; margin-bottom: 0.75em;">
+                        <div style="padding: 1em; text-align: center; opacity: 0.65;">Loading topic catalog…</div>
+                    </div>
+
+                    <div id="DtddPickerStatus" style="opacity: 0.7; font-size: 0.9em; min-height: 1.4em;"></div>
+
+                    <div style="margin-top: 0.5em;">
+                        <button id="DtddSavePrefs" is="emby-button" type="button" class="raised button-submit block emby-button">
+                            <span>Save phobias &amp; scan library</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- ============================================================
+                     ADMIN-ONLY: operational config
+                     (toggled visible by the script after ApiClient.getCurrentUser())
+                     ============================================================ -->
+                <div id="DtddAdminSection" style="display: none; margin-top: 2em; padding-top: 1em; border-top: 1px solid var(--theme-card-border-color, rgba(255,255,255,0.15));">
+                    <h3 style="margin-top: 0;">Plugin settings (admin only)</h3>
+
+                    <form id="DtddAdminForm">
+                        <div class="inputContainer">
+                            <label class="inputLabel inputLabelUnfocused" for="ApiKey">DoesTheDogDie API key</label>
+                            <input id="ApiKey" name="ApiKey" type="password" is="emby-input" autocomplete="off" />
+                            <div class="fieldDescription">
+                                Get one at <a href="https://www.doesthedogdie.com/account" target="_blank" rel="noopener">doesthedogdie.com/account</a>.
+                                Never logged, never echoed.
+                            </div>
+                        </div>
+
+                        <div class="inputContainer">
+                            <label class="inputLabel inputLabelUnfocused" for="CacheTtlDays">Cache TTL (days)</label>
+                            <input id="CacheTtlDays" name="CacheTtlDays" type="number" is="emby-input" min="1" max="365" />
+                            <div class="fieldDescription">How long cached DTDD responses live before refetch. Default 14.</div>
+                        </div>
+
+                        <div class="checkboxContainer checkboxContainer-withDescription">
+                            <label class="emby-checkbox-label">
+                                <input id="PrefetchEnabled" name="PrefetchEnabled" type="checkbox" is="emby-checkbox" />
+                                <span>Enable weekly prefetch task</span>
+                            </label>
+                            <div class="fieldDescription">
+                                Weekly background scan. The picker's "Save &amp; scan" button already warms the library on demand;
+                                this toggle is for periodic refresh.
+                            </div>
+                        </div>
+
+                        <div class="inputContainer">
+                            <label class="inputLabel inputLabelUnfocused" for="DtddBaseUrl">DoesTheDogDie base URL</label>
+                            <input id="DtddBaseUrl" name="DtddBaseUrl" type="text" is="emby-input" />
+                            <div class="fieldDescription">Advanced. Leave at default.</div>
+                        </div>
+
+                        <div style="margin-top: 1em;">
+                            <button is="emby-button" type="submit" class="raised emby-button">
+                                <span>Save plugin settings</span>
+                            </button>
+                        </div>
+                    </form>
+                </div>
+
             </div>
         </div>
 
         <script type="text/javascript">
             (function () {
-                var DtddConfig = {
-                    pluginUniqueId: '4479e434-651e-48f7-a2ee-bec0bdadec5e'
-                };
+                var pluginId = '4479e434-651e-48f7-a2ee-bec0bdadec5e';
 
                 var page = document.querySelector('#DtddConfigPage');
-                var form = document.querySelector('#DtddConfigForm');
+                var topicsList = document.querySelector('#DtddTopicsList');
+                var search = document.querySelector('#DtddSearch');
+                var savePrefs = document.querySelector('#DtddSavePrefs');
+                var refreshBtn = document.querySelector('#DtddRefreshCatalog');
+                var countEl = document.querySelector('#DtddPickerCount');
+                var statusEl = document.querySelector('#DtddPickerStatus');
+                var adminSection = document.querySelector('#DtddAdminSection');
+                var adminForm = document.querySelector('#DtddAdminForm');
 
-                page.addEventListener('pageshow', function () {
-                    Dashboard.showLoadingMsg();
-                    ApiClient.getPluginConfiguration(DtddConfig.pluginUniqueId).then(function (config) {
+                // selected[topicId] = true means user has it checked
+                var selected = {};
+                var topics = [];
+
+                function api(path, opts) {
+                    opts = opts || {};
+                    var method = opts.method || 'GET';
+                    var req = {
+                        type: method,
+                        url: ApiClient.getUrl(path)
+                    };
+                    if (method === 'GET') {
+                        req.dataType = 'json';
+                    }
+                    if (opts.body !== undefined) {
+                        req.data = JSON.stringify(opts.body);
+                        req.contentType = 'application/json';
+                    }
+                    return ApiClient.ajax(req);
+                }
+
+                function setStatus(msg) {
+                    statusEl.textContent = msg || '';
+                }
+
+                function updateCount() {
+                    var n = 0;
+                    for (var k in selected) {
+                        if (selected[k]) n++;
+                    }
+                    countEl.textContent = n + ' selected';
+                }
+
+                function groupByCategory(topicsArray) {
+                    var byCat = {};
+                    for (var i = 0; i < topicsArray.length; i++) {
+                        var t = topicsArray[i];
+                        var cat = (t.TopicCategory && t.TopicCategory.name) || 'Uncategorized';
+                        if (!byCat[cat]) byCat[cat] = [];
+                        byCat[cat].push(t);
+                    }
+                    return byCat;
+                }
+
+                function renderList(filter) {
+                    while (topicsList.firstChild) topicsList.removeChild(topicsList.firstChild);
+
+                    if (!topics.length) {
+                        var empty = document.createElement('div');
+                        empty.style.padding = '1em';
+                        empty.style.textAlign = 'center';
+                        empty.style.opacity = '0.7';
+                        empty.textContent = 'Topic catalog is empty. Click "Refresh catalog" to populate from DTDD.';
+                        topicsList.appendChild(empty);
+                        return;
+                    }
+
+                    var f = (filter || '').toLowerCase().trim();
+                    var byCat = groupByCategory(topics);
+                    var cats = Object.keys(byCat).sort();
+                    var anyRendered = false;
+
+                    for (var i = 0; i < cats.length; i++) {
+                        var cat = cats[i];
+                        var inCat = byCat[cat];
+                        var filtered = f
+                            ? inCat.filter(function (t) { return (t.name + ' ' + (t.description || '')).toLowerCase().indexOf(f) >= 0; })
+                            : inCat;
+                        if (!filtered.length) continue;
+                        anyRendered = true;
+                        filtered.sort(function (a, b) { return a.name.localeCompare(b.name); });
+
+                        var catEl = document.createElement('div');
+                        catEl.style.fontWeight = '600';
+                        catEl.style.opacity = '0.85';
+                        catEl.style.margin = '0.6em 0 0.2em 0';
+                        catEl.textContent = cat;
+                        topicsList.appendChild(catEl);
+
+                        for (var j = 0; j < filtered.length; j++) {
+                            (function (topic) {
+                                var label = document.createElement('label');
+                                label.style.display = 'flex';
+                                label.style.alignItems = 'center';
+                                label.style.gap = '0.4em';
+                                label.style.padding = '0.2em 0';
+                                var cb = document.createElement('input');
+                                cb.type = 'checkbox';
+                                cb.checked = !!selected[topic.id];
+                                cb.addEventListener('change', function () {
+                                    selected[topic.id] = cb.checked;
+                                    updateCount();
+                                });
+                                label.appendChild(cb);
+                                var name = document.createElement('span');
+                                name.textContent = topic.name;
+                                label.appendChild(name);
+                                if (topic.description) label.title = topic.description;
+                                topicsList.appendChild(label);
+                            })(filtered[j]);
+                        }
+                    }
+
+                    if (!anyRendered) {
+                        var none = document.createElement('div');
+                        none.style.padding = '0.75em';
+                        none.style.textAlign = 'center';
+                        none.style.opacity = '0.7';
+                        none.textContent = 'No matches for "' + (filter || '') + '"';
+                        topicsList.appendChild(none);
+                    }
+                }
+
+                async function loadTopics(forceRefreshHint) {
+                    setStatus(forceRefreshHint ? 'Refreshing catalog from DTDD…' : 'Loading topic catalog…');
+                    try {
+                        var result = await api('DTDD/topics');
+                        topics = Array.isArray(result) ? result : [];
+                    } catch (err) {
+                        topics = [];
+                        setStatus('Failed to load topic catalog: ' + (err && err.message ? err.message : err));
+                        renderList(search.value);
+                        return;
+                    }
+                    setStatus(topics.length ? '' : 'Topic catalog is empty — check the API key and click "Refresh catalog".');
+                    renderList(search.value);
+                }
+
+                async function loadPrefs() {
+                    try {
+                        var prefs = await api('DTDD/prefs');
+                        selected = {};
+                        if (prefs && Array.isArray(prefs.phobiaTopicIds)) {
+                            for (var i = 0; i < prefs.phobiaTopicIds.length; i++) {
+                                selected[prefs.phobiaTopicIds[i]] = true;
+                            }
+                        }
+                        updateCount();
+                    } catch (err) {
+                        // not configured yet — selected stays empty
+                    }
+                }
+
+                async function savePhobias() {
+                    var ids = [];
+                    for (var k in selected) {
+                        if (selected[k]) ids.push(Number(k));
+                    }
+                    if (ids.length === 0) {
+                        if (!window.confirm('Saving with no topics selected disables filtering — every item shows "Safe". Save anyway?')) {
+                            return;
+                        }
+                    }
+                    savePrefs.disabled = true;
+                    setStatus('Saving…');
+                    try {
+                        await api('DTDD/prefs', { method: 'PUT', body: { phobiaTopicIds: ids } });
+                    } catch (err) {
+                        setStatus('Save failed: ' + (err && err.message ? err.message : err));
+                        savePrefs.disabled = false;
+                        return;
+                    }
+                    setStatus('Saved ' + ids.length + ' topic(s). Scanning library in the background — badges will populate as items are processed.');
+                    try {
+                        await api('DTDD/scan', { method: 'POST' });
+                    } catch (err) {
+                        setStatus('Saved, but scan kickoff failed: ' + (err && err.message ? err.message : err));
+                    }
+                    savePrefs.disabled = false;
+                }
+
+                async function loadAdminConfig() {
+                    try {
+                        var config = await ApiClient.getPluginConfiguration(pluginId);
                         document.querySelector('#ApiKey').value = config.ApiKey || '';
                         document.querySelector('#CacheTtlDays').value = config.CacheTtlDays != null ? config.CacheTtlDays : 14;
                         document.querySelector('#PrefetchEnabled').checked = !!config.PrefetchEnabled;
                         document.querySelector('#DtddBaseUrl').value = config.DtddBaseUrl || 'https://www.doesthedogdie.com';
-                        Dashboard.hideLoadingMsg();
+                    } catch (e) {
+                        // non-admin: getPluginConfiguration may 403, hide section
+                        adminSection.style.display = 'none';
+                    }
+                }
+
+                function bindAdminForm() {
+                    adminForm.addEventListener('submit', function (e) {
+                        e.preventDefault();
+                        Dashboard.showLoadingMsg();
+                        ApiClient.getPluginConfiguration(pluginId).then(function (config) {
+                            config.ApiKey = document.querySelector('#ApiKey').value.trim();
+                            var ttl = parseInt(document.querySelector('#CacheTtlDays').value, 10);
+                            config.CacheTtlDays = isNaN(ttl) || ttl < 1 ? 14 : ttl;
+                            config.PrefetchEnabled = document.querySelector('#PrefetchEnabled').checked;
+                            var baseUrl = document.querySelector('#DtddBaseUrl').value.trim();
+                            config.DtddBaseUrl = baseUrl || 'https://www.doesthedogdie.com';
+                            ApiClient.updatePluginConfiguration(pluginId, config).then(function (result) {
+                                Dashboard.processPluginConfigurationUpdateResult(result);
+                            });
+                        });
+                        return false;
                     });
+                }
+
+                async function showAdminIfAllowed() {
+                    try {
+                        var user = await ApiClient.getCurrentUser();
+                        if (user && user.Policy && user.Policy.IsAdministrator) {
+                            adminSection.style.display = 'block';
+                            await loadAdminConfig();
+                            bindAdminForm();
+                        }
+                    } catch (e) {
+                        // ignore — non-admin path
+                    }
+                }
+
+                page.addEventListener('pageshow', function () {
+                    Dashboard.showLoadingMsg();
+                    Promise.all([loadTopics(false), loadPrefs(), showAdminIfAllowed()])
+                        .finally(function () { Dashboard.hideLoadingMsg(); });
                 });
 
-                form.addEventListener('submit', function (e) {
-                    e.preventDefault();
-                    Dashboard.showLoadingMsg();
-                    ApiClient.getPluginConfiguration(DtddConfig.pluginUniqueId).then(function (config) {
-                        config.ApiKey = document.querySelector('#ApiKey').value.trim();
-                        var ttl = parseInt(document.querySelector('#CacheTtlDays').value, 10);
-                        config.CacheTtlDays = isNaN(ttl) || ttl < 1 ? 14 : ttl;
-                        config.PrefetchEnabled = document.querySelector('#PrefetchEnabled').checked;
-                        var baseUrl = document.querySelector('#DtddBaseUrl').value.trim();
-                        config.DtddBaseUrl = baseUrl || 'https://www.doesthedogdie.com';
-                        ApiClient.updatePluginConfiguration(DtddConfig.pluginUniqueId, config).then(function (result) {
-                            Dashboard.processPluginConfigurationUpdateResult(result);
-                        });
-                    });
-                    return false;
-                });
+                search.addEventListener('input', function (e) { renderList(e.target.value); });
+                refreshBtn.addEventListener('click', function () { loadTopics(true); });
+                savePrefs.addEventListener('click', savePhobias);
             })();
         </script>
     </div>
