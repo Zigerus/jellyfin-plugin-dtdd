@@ -15,11 +15,18 @@
       <ExcludeAssets>runtime</ExcludeAssets>
     </PackageReference>
     <PackageReference Include="Microsoft.Data.Sqlite" Version="9.0.10" />
+    <!-- Newtonsoft.Json is required ONLY for the JS Injector reflection contract
+         (its PluginInterface.RegisterScript accepts a JObject). System.Text.Json
+         is used everywhere else. Pinned to 13.0.1 to match JS Injector's pin so
+         a single Newtonsoft.Json assembly version is loaded at runtime. -->
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.1" />
   </ItemGroup>
 
   <ItemGroup>
     <None Remove="Configuration\configPage.html" />
     <EmbeddedResource Include="Configuration\configPage.html" />
+    <None Remove="Web\dtdd-injector.js" />
+    <EmbeddedResource Include="Web\dtdd-injector.js" />
   </ItemGroup>
 
 </Project>
