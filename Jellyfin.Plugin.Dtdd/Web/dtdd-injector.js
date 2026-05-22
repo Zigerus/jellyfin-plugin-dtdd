@@ -82,8 +82,11 @@
             '.dtdd-picker-category { margin: 0.6em 0 0.2em 0; font-weight: 600; opacity: 0.85; font-size: 0.9em; }',
             '.dtdd-picker-topic { display: flex; align-items: center; gap: 0.45em; padding: 0.2em 0; font-size: 0.95em; }',
             '.dtdd-picker-footer { display: flex; gap: 0.5em; justify-content: flex-end; margin-top: 0.75em; padding-top: 0.65em; border-top: 1px solid var(--theme-card-border-color, rgba(255,255,255,0.1)); }',
-            '.dtdd-picker-button { padding: 0.45em 1.1em; border-radius: 0.3em; cursor: pointer; font: inherit; border: 1px solid currentColor; background: transparent; color: inherit; }',
-            '.dtdd-picker-button.dtdd-primary { background: var(--theme-accent-color, currentColor); color: var(--theme-button-text-color, #fff); border-color: transparent; }'
+            // Picker buttons: rely on Jellyfin native classes (emby-button +
+            // raised + button-submit) where possible — they pick the right
+            // text/background colors from the active theme. We only override
+            // a couple of layout fields and the cancel-button variant.
+            '.dtdd-picker .dtdd-cancel { background: transparent !important; color: inherit !important; border: 1px solid currentColor !important; }'
             // Settings entry styling: inherit from native emby-button / listItem-border / listItem classes. No custom CSS.
         ].join('\n');
         document.head.appendChild(style);
@@ -296,9 +299,13 @@
         entry.className = 'emby-button listItem-border dtdd-settings-entry';
         entry.href = '#';
         entry.setAttribute('style', 'display: block; margin: 0px; padding: 0px;');
+        // The icon-name class drives the glyph via Jellyfin CSS
+        // (.material-icons.warning::before { content: "warning" }). We do NOT
+        // also put "warning" as inner text — that would render a second icon
+        // via the Material Icons ligature.
         entry.innerHTML = [
             '<div class="listItem">',
-            '  <span class="material-icons listItemIcon listItemIcon-transparent warning" aria-hidden="true">warning</span>',
+            '  <span class="material-icons listItemIcon listItemIcon-transparent warning" aria-hidden="true"></span>',
             '  <div class="listItemBody">',
             '    <div class="listItemBodyText">DoesTheDogDie</div>',
             '  </div>',
@@ -453,16 +460,26 @@
         var footer = document.createElement('div');
         footer.className = 'dtdd-picker-footer';
 
+        // Cancel: outlined / transparent. .dtdd-cancel keeps it visually
+        // distinct from the raised primary Save button.
         var cancelBtn = document.createElement('button');
         cancelBtn.type = 'button';
+        cancelBtn.className = 'emby-button dtdd-cancel';
+        cancelBtn.style.padding = '0.45em 1.1em';
+        cancelBtn.style.borderRadius = '0.3em';
         cancelBtn.textContent = 'Cancel';
-        cancelBtn.className = 'dtdd-picker-button';
         cancelBtn.addEventListener('click', function () { dialog.close(); });
 
+        // Save: use Jellyfin's native primary-button class set so the active
+        // theme picks the correct text-on-accent colour pair. emby-button
+        // + raised + button-submit is the same trio Jellyfin's own config
+        // pages use for the green/blue Save buttons.
         var saveBtn = document.createElement('button');
         saveBtn.type = 'button';
-        saveBtn.textContent = 'Save & scan library';
-        saveBtn.className = 'dtdd-picker-button dtdd-primary';
+        saveBtn.className = 'raised button-submit emby-button';
+        saveBtn.style.padding = '0.45em 1.1em';
+        saveBtn.style.borderRadius = '0.3em';
+        saveBtn.innerHTML = '<span>Save &amp; scan library</span>';
         saveBtn.addEventListener('click', async function () {
             var ids = [];
             for (var k in selected) if (selected[k]) ids.push(Number(k));
