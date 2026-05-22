@@ -7,10 +7,10 @@ using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.Dtdd.Api.Models;
 using Jellyfin.Plugin.Dtdd.Services;
+using Jellyfin.Plugin.Dtdd.Providers;
 using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
-using MediaBrowser.Model.Entities;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
@@ -112,7 +112,10 @@ public class DtddController : ControllerBase
 
         if (details is not null)
         {
-            await BackfillDtddProviderIdAsync(item, details.Item.Id, cancellationToken).ConfigureAwait(false);
+            // Side-effect: surface the badge by writing the Dtdd ProviderId.
+            // See DtddProviderIdBackfill for the v1 shortcut rationale and the
+            // v1.x migration to a true IRemoteMetadataProvider.
+            await DtddProviderIdBackfill.TryBackfillAsync(item, details.Item.Id, _logger, cancellationToken).ConfigureAwait(false);
         }
 
         if (details is null)
@@ -178,7 +181,18 @@ public class DtddController : ControllerBase
 
     /// <summary>
     /// Overwrite the calling user's phobia list. Empty list is allowed but the picker
-    /// in Phase 3 should confirm before saving zero.
+    /// in Phase 3 confirms before saving zero.
+    ///
+    /// <para>
+    /// We deliberately do NOT validate phobiaTopicIds against the cumulative topics
+    /// table. The picker UI sources its IDs from <c>GET /DTDD/topics</c>, so the only
+    /// way to send a "bogus" ID is direct API access — and even then, an unrecognised
+    /// ID just never matches anything in the safety lookup (harmless, not exploitable).
+    /// Validating against the topics table would create a chicken-and-egg problem:
+    /// a topic that's valid at DTDD but hasn't yet been observed in any cached
+    /// /media/{id} response would be rejected. A length cap below bounds memory
+    /// from a malicious or buggy client without false-negatives on legitimate IDs.
+    /// </para>
     /// </summary>
     [HttpPut("prefs")]
     public async Task<ActionResult> PutPrefs(
@@ -197,6 +211,14 @@ public class DtddController : ControllerBase
         }
 
         prefs.PhobiaTopicIds ??= new List<int>();
+
+        // Length cap — DTDD has ~300 topics across all categories; 500 is generous.
+        const int MaxPhobiaTopicIds = 500;
+        if (prefs.PhobiaTopicIds.Count > MaxPhobiaTopicIds)
+        {
+            return BadRequest($"phobiaTopicIds exceeds maximum of {MaxPhobiaTopicIds}.");
+        }
+
         await _prefsStore.PutAsync(userId, prefs, cancellationToken).ConfigureAwait(false);
         return NoContent();
     }
@@ -205,36 +227,5 @@ public class DtddController : ControllerBase
     {
         var claim = User.FindFirst(UserIdClaimType)?.Value;
         return Guid.TryParse(claim, out var id) ? id : Guid.Empty;
-    }
-
-    /// <summary>
-    /// Persist the resolved DTDD ID into the item's ProviderIds so the
-    /// DtddMovieExternalId / DtddSeriesExternalId badge surfaces. Side-effect
-    /// of a successful safety lookup; idempotent (skips when already set).
-    /// Failures are swallowed: a missing badge is acceptable, but a broken
-    /// safety endpoint is not.
-    /// </summary>
-    private async Task BackfillDtddProviderIdAsync(
-        MediaBrowser.Controller.Entities.BaseItem item,
-        int dtddId,
-        CancellationToken cancellationToken)
-    {
-        var existing = item.GetProviderId(DtddConstants.ProviderId);
-        var resolved = dtddId.ToString(CultureInfo.InvariantCulture);
-
-        if (string.Equals(existing, resolved, StringComparison.Ordinal))
-        {
-            return;
-        }
-
-        try
-        {
-            item.SetProviderId(DtddConstants.ProviderId, resolved);
-            await item.UpdateToRepositoryAsync(ItemUpdateType.MetadataEdit, cancellationToken).ConfigureAwait(false);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogDebug(ex, "Could not persist Dtdd ProviderId for {Title}; badge will retry on next safety call", item.Name);
-        }
     }
 }
