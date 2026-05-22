@@ -27,7 +27,12 @@ BUILD_YAML="$REPO_ROOT/build.yaml"
 
 REMOTE_HOST="servarr"
 REMOTE_TMP="/tmp"
-REMOTE_PLUGINS_DIR="/home/zigerus/appdata/jellyfin/plugins"
+# Jellyfin loads plugins from /config/data/plugins inside the container.
+# With the linuxserver/jellyfin compose mount /home/zigerus/appdata/jellyfin:/config,
+# that maps to /home/zigerus/appdata/jellyfin/data/plugins on the host.
+# (The older /config/plugins location was found empty during Phase 3 pre-flight;
+# the real install path is /config/data/plugins per the running container's layout.)
+REMOTE_PLUGINS_DIR="/home/zigerus/appdata/jellyfin/data/plugins"
 REMOTE_CONTAINER="jellyfin"
 
 DOTNET="${DOTNET:-$HOME/.dotnet/dotnet}"
