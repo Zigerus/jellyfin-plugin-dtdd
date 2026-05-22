@@ -8,10 +8,16 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Jellyfin.Controller" Version="10.11.*-*">
+    <!-- Pinned to 10.11.8 — the version the production Servarr container is running
+         (lscr.io/linuxserver/jellyfin:latest at the time of v1 development).
+         The wildcard 10.11.*-* resolves to whatever's newest on NuGet, which
+         caused a "Could not load assembly MediaBrowser.Common 10.11.9.0" load
+         failure on the 10.11.8 host. Bump this in lockstep with the deployment
+         when the container upgrades. -->
+    <PackageReference Include="Jellyfin.Controller" Version="10.11.8">
       <ExcludeAssets>runtime</ExcludeAssets>
     </PackageReference>
-    <PackageReference Include="Jellyfin.Model" Version="10.11.*-*">
+    <PackageReference Include="Jellyfin.Model" Version="10.11.8">
       <ExcludeAssets>runtime</ExcludeAssets>
     </PackageReference>
     <PackageReference Include="Microsoft.Data.Sqlite" Version="9.0.10" />
