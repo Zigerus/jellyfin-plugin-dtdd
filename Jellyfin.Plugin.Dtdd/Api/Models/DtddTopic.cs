@@ -16,10 +16,14 @@ public class DtddTopic
     [JsonPropertyName("description")]
     public string? Description { get; set; }
 
+    /// <remarks>DTDD returns int 0/1 here in /dddsearch but real bool in /media/{id}.</remarks>
     [JsonPropertyName("isSpoiler")]
+    [JsonConverter(typeof(FlexibleBoolConverter))]
     public bool IsSpoiler { get; set; }
 
+    /// <remarks>Same int-or-bool inconsistency as IsSpoiler.</remarks>
     [JsonPropertyName("isSensitive")]
+    [JsonConverter(typeof(FlexibleBoolConverter))]
     public bool IsSensitive { get; set; }
 
     /// <summary>Category ID — JSON key uses PascalCase in DTDD's response.</summary>
