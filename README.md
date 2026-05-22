@@ -38,10 +38,12 @@ Install order:
 ## Configuration
 
 **Admin (one-time):**
+
 1. Get a DoesTheDogDie API key at <https://www.doesthedogdie.com> (free account → request API access).
 2. Dashboard → Plugins → DoesTheDogDie → paste API key → save.
 
 **Each user (their own phobia list):**
+
 1. Click your avatar (top-right) → **Settings**.
 2. Scroll to **DoesTheDogDie** (under your username's section, alongside Profile / Display / Playback / etc.).
 3. Pick the topics you want flagged → **Save phobias**.
@@ -125,6 +127,14 @@ ssh servarr 'rm -rf /home/zigerus/appdata/jellyfin/data/plugins/DoesTheDogDie_0.
 - v2: "Why?" modal on the Not Safe badge — clicking the badge opens a modal listing each matched phobia with its top community comment and total comment count. The data is already in the v1 API response; just needs the UI.
 - v2: Episode-level data is not available from DoesTheDogDie (per-title only). The comment preview will stay at show/movie granularity.
 - v1.x: ship `IRemoteMetadataProvider<Movie>` / `IRemoteMetadataProvider<Series>` so the Dtdd ProviderId gets written during normal metadata refresh and the v1 backfill-on-read shortcut can be removed.
+
+## Built with AI assistance
+
+This plugin was developed collaboratively with [Claude](https://www.anthropic.com/claude) (Anthropic's AI assistant) under direct human supervision. Code generation, debugging, refactoring, and documentation were AI-assisted; architectural decisions, security review, dependency choices, production deployment steps, and the final judgement on every change were reviewed and approved by the human maintainer ([Zigerus](https://github.com/Zigerus)) before landing.
+
+Each commit's `Co-Authored-By` footer marks the model that contributed. The development process — including phase gates, restart approvals, and code reviews — is preserved in the commit history if you want to audit how the plugin was put together.
+
+The AI assistance disclosure is here because transparency matters even on small homelab projects. If you're auditing this plugin for use in your own setup, treat it like any third-party code: read the source, install the JavaScript Injector dependency knowingly, keep your DoesTheDogDie API key private, and decide for yourself whether the trust model is acceptable.
 
 ## License
 
