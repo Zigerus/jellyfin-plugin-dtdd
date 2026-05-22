@@ -214,9 +214,13 @@
     // -----------------------------------------------------------------------
 
     async function fetchTopics(forceRefresh) {
-        if (topicsCache && !forceRefresh) return topicsCache;
+        // Treat an empty in-memory cache as "not yet fetched" so a server that
+        // populates later (first-load seed, scheduled task) eventually wins.
+        // Without this, an early empty response would stick for the SPA session.
+        if (topicsCache && topicsCache.length > 0 && !forceRefresh) return topicsCache;
         try {
-            topicsCache = await apiCall('DTDD/topics') || [];
+            var result = await apiCall('DTDD/topics');
+            topicsCache = Array.isArray(result) ? result : [];
         } catch (err) {
             warn('topics fetch failed', err);
             topicsCache = [];
