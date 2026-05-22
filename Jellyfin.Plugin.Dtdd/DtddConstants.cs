@@ -17,4 +17,7 @@ internal static class DtddConstants
 
     /// <summary>Provider key used in BaseItem.ProviderIds for the DTDD media ID.</summary>
     public const string ProviderId = "Dtdd";
+
+    /// <summary>Display name surfaced in Jellyfin's external-IDs badge row.</summary>
+    public const string ProviderName = "DoesTheDogDie";
 }
