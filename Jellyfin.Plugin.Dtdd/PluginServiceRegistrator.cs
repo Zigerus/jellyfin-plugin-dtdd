@@ -17,6 +17,6 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
 
         serviceCollection.AddSingleton<DtddClient>();
         serviceCollection.AddSingleton<WarningCache>();
-        // UserPreferenceStore is added in Phase 2.4.
+        serviceCollection.AddSingleton<UserPreferenceStore>();
     }
 }
