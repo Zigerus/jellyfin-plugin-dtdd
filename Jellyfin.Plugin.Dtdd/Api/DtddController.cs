@@ -38,6 +38,7 @@ public class DtddController : ControllerBase
     private readonly WarningCache _cache;
     private readonly UserPreferenceStore _prefsStore;
     private readonly TopicSeeder _seeder;
+    private readonly LibraryWarmer _warmer;
     private readonly ILibraryManager _libraryManager;
     private readonly ILogger<DtddController> _logger;
 
@@ -46,6 +47,7 @@ public class DtddController : ControllerBase
         WarningCache cache,
         UserPreferenceStore prefsStore,
         TopicSeeder seeder,
+        LibraryWarmer warmer,
         ILibraryManager libraryManager,
         ILogger<DtddController> logger)
     {
@@ -53,6 +55,7 @@ public class DtddController : ControllerBase
         _cache = cache;
         _prefsStore = prefsStore;
         _seeder = seeder;
+        _warmer = warmer;
         _libraryManager = libraryManager;
         _logger = logger;
     }
@@ -264,6 +267,27 @@ public class DtddController : ControllerBase
 
         await _prefsStore.PutAsync(userId, prefs, cancellationToken).ConfigureAwait(false);
         return NoContent();
+    }
+
+    /// <summary>
+    /// Kick off a background library warm (cache + ProviderId backfill for every
+    /// Movie/Series with a TMDB ID). Called by the picker after a successful save
+    /// so badges start populating immediately without waiting for the weekly
+    /// prefetch task. Returns 202 Accepted with {"started": true|false} —
+    /// <c>false</c> means a previous warm is still running and this request was
+    /// ignored (idempotent: no harm in calling multiple times).
+    /// </summary>
+    [HttpPost("scan")]
+    public ActionResult<object> StartScan(CancellationToken cancellationToken = default)
+    {
+        var userId = GetCallingUserId();
+        if (userId == Guid.Empty)
+        {
+            return Unauthorized();
+        }
+
+        var started = _warmer.TryStartBackground(cancellationToken);
+        return Accepted(new { started, alreadyRunning = !started });
     }
 
     private Guid GetCallingUserId()

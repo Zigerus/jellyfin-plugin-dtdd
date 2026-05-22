@@ -19,6 +19,7 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         serviceCollection.AddSingleton<WarningCache>();
         serviceCollection.AddSingleton<UserPreferenceStore>();
         serviceCollection.AddSingleton<TopicSeeder>();
+        serviceCollection.AddSingleton<LibraryWarmer>();
 
         // First-load seed hook (equivalent to OnInstall — Jellyfin's BasePlugin
         // has no dedicated install-time callback in 10.11.x; IHostedService runs
