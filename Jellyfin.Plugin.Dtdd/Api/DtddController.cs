@@ -1,14 +1,203 @@
+using System;
+using System.Collections.Generic;
+using System.Globalization;
+using System.Linq;
+using System.Net.Mime;
+using System.Threading;
+using System.Threading.Tasks;
+using Jellyfin.Plugin.Dtdd.Api.Models;
+using Jellyfin.Plugin.Dtdd.Services;
+using MediaBrowser.Controller.Entities.Movies;
+using MediaBrowser.Controller.Entities.TV;
+using MediaBrowser.Controller.Library;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.Dtdd.Api;
 
+/// <summary>
+/// REST surface for the plugin. Mounted under <c>/DTDD/</c>. All endpoints require
+/// an authenticated Jellyfin user; the prefs endpoints resolve the calling user from
+/// the request's "Jellyfin-UserId" claim.
+/// </summary>
+[Authorize]
 [ApiController]
 [Route("DTDD")]
+[Produces(MediaTypeNames.Application.Json)]
 public class DtddController : ControllerBase
 {
-    // Phase 2 endpoints:
-    //   GET  /DTDD/safety/{jellyfinItemId}
-    //   GET  /DTDD/topics
-    //   GET  /DTDD/prefs
-    //   PUT  /DTDD/prefs
+    // Mirrors Jellyfin.Api.Constants.InternalClaimTypes.UserId (not in MediaBrowser.Controller package).
+    private const string UserIdClaimType = "Jellyfin-UserId";
+
+    private readonly DtddClient _dtdd;
+    private readonly WarningCache _cache;
+    private readonly UserPreferenceStore _prefsStore;
+    private readonly ILibraryManager _libraryManager;
+    private readonly ILogger<DtddController> _logger;
+
+    public DtddController(
+        DtddClient dtdd,
+        WarningCache cache,
+        UserPreferenceStore prefsStore,
+        ILibraryManager libraryManager,
+        ILogger<DtddController> logger)
+    {
+        _dtdd = dtdd;
+        _cache = cache;
+        _prefsStore = prefsStore;
+        _libraryManager = libraryManager;
+        _logger = logger;
+    }
+
+    /// <summary>
+    /// Compute the per-user Safe / Not Safe verdict for a single Jellyfin item.
+    /// </summary>
+    [HttpGet("safety/{itemId}")]
+    public async Task<ActionResult<SafetyResponse>> GetSafety(
+        [FromRoute] Guid itemId,
+        CancellationToken cancellationToken = default)
+    {
+        var userId = GetCallingUserId();
+        if (userId == Guid.Empty)
+        {
+            return Unauthorized();
+        }
+
+        var prefs = await _prefsStore.GetAsync(userId, cancellationToken).ConfigureAwait(false);
+        if (prefs is null)
+        {
+            // User has never opened the picker → CTA state.
+            return new SafetyResponse { State = SafetyStates.NotConfigured };
+        }
+
+        var item = _libraryManager.GetItemById(itemId);
+        if (item is null)
+        {
+            _logger.LogDebug("Safety lookup: item {ItemId} not found", itemId);
+            return new SafetyResponse
+            {
+                State = SafetyStates.Unknown,
+                ConfiguredPhobiaCount = prefs.PhobiaTopicIds.Count,
+            };
+        }
+
+        var tmdbStr = item.ProviderIds.TryGetValue("Tmdb", out var tv) ? tv : null;
+        var imdbStr = item.ProviderIds.TryGetValue("Imdb", out var iv) ? iv : null;
+
+        int? tmdbId = int.TryParse(tmdbStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed) ? parsed : null;
+
+        // Cache lookup is keyed by tmdbId only (mission spec). Items without TMDB
+        // metadata still get a live fetch but skip caching.
+        var details = tmdbId.HasValue ? _cache.Get(tmdbId.Value) : null;
+
+        if (details is null)
+        {
+            if (!string.IsNullOrWhiteSpace(imdbStr))
+            {
+                details = await _dtdd.GetByImdbAsync(imdbStr, cancellationToken).ConfigureAwait(false);
+            }
+            else if (!string.IsNullOrWhiteSpace(item.Name))
+            {
+                var typeId = item is Series ? DtddConstants.ItemTypeSeries : DtddConstants.ItemTypeMovie;
+                details = await _dtdd.GetByTitleAsync(item.Name, item.ProductionYear, typeId, cancellationToken).ConfigureAwait(false);
+            }
+
+            if (details is not null && tmdbId.HasValue)
+            {
+                _cache.Put(tmdbId.Value, details);
+            }
+        }
+
+        if (details is null)
+        {
+            return new SafetyResponse
+            {
+                State = SafetyStates.Unknown,
+                ConfiguredPhobiaCount = prefs.PhobiaTopicIds.Count,
+            };
+        }
+
+        var phobiaSet = new HashSet<int>(prefs.PhobiaTopicIds);
+        var matches = details.TopicItemStats
+            .Where(s => phobiaSet.Contains(s.TopicId) && s.YesSum >= 1)
+            .Select(s => new MatchedPhobia
+            {
+                TopicId = s.TopicId,
+                Name = s.Topic?.Name ?? string.Empty,
+                YesSum = s.YesSum,
+                NoSum = s.NoSum,
+                TopComment = s.Comment,
+                NumComments = s.NumComments,
+            })
+            .ToList();
+
+        return new SafetyResponse
+        {
+            State = matches.Count > 0 ? SafetyStates.NotSafe : SafetyStates.Safe,
+            MatchedPhobias = matches,
+            ConfiguredPhobiaCount = prefs.PhobiaTopicIds.Count,
+            DtddItemId = details.Item.Id == 0 ? null : details.Item.Id,
+        };
+    }
+
+    /// <summary>
+    /// Returns the cumulative topic catalog (everything ever seen via /media/{id}
+    /// or explicit SeedTopics calls). Returns an empty list before the cache is
+    /// warmed; the picker UI should hint at that.
+    /// </summary>
+    [HttpGet("topics")]
+    public ActionResult<List<DtddTopic>> GetTopics()
+    {
+        return _cache.GetTopics();
+    }
+
+    /// <summary>
+    /// Returns the calling user's prefs, or an empty list if no record exists.
+    /// Use <c>GET /DTDD/safety/{id}</c>'s <c>state == "not_configured"</c> for the
+    /// has-a-record? signal — this endpoint always returns a shape.
+    /// </summary>
+    [HttpGet("prefs")]
+    public async Task<ActionResult<UserPrefs>> GetPrefs(CancellationToken cancellationToken = default)
+    {
+        var userId = GetCallingUserId();
+        if (userId == Guid.Empty)
+        {
+            return Unauthorized();
+        }
+
+        var prefs = await _prefsStore.GetAsync(userId, cancellationToken).ConfigureAwait(false);
+        return prefs ?? new UserPrefs();
+    }
+
+    /// <summary>
+    /// Overwrite the calling user's phobia list. Empty list is allowed but the picker
+    /// in Phase 3 should confirm before saving zero.
+    /// </summary>
+    [HttpPut("prefs")]
+    public async Task<ActionResult> PutPrefs(
+        [FromBody] UserPrefs prefs,
+        CancellationToken cancellationToken = default)
+    {
+        var userId = GetCallingUserId();
+        if (userId == Guid.Empty)
+        {
+            return Unauthorized();
+        }
+
+        if (prefs is null)
+        {
+            return BadRequest();
+        }
+
+        prefs.PhobiaTopicIds ??= new List<int>();
+        await _prefsStore.PutAsync(userId, prefs, cancellationToken).ConfigureAwait(false);
+        return NoContent();
+    }
+
+    private Guid GetCallingUserId()
+    {
+        var claim = User.FindFirst(UserIdClaimType)?.Value;
+        return Guid.TryParse(claim, out var id) ? id : Guid.Empty;
+    }
 }
