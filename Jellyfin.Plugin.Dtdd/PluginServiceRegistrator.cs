@@ -1,3 +1,5 @@
+using System;
+using Jellyfin.Plugin.Dtdd.Services;
 using MediaBrowser.Controller;
 using MediaBrowser.Controller.Plugins;
 using Microsoft.Extensions.DependencyInjection;
@@ -8,6 +10,12 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
 {
     public void RegisterServices(IServiceCollection serviceCollection, IServerApplicationHost applicationHost)
     {
-        // Phase 2 will register DtddClient, WarningCache, UserPreferenceStore here.
+        serviceCollection.AddHttpClient(DtddConstants.HttpClientName, client =>
+        {
+            client.Timeout = TimeSpan.FromSeconds(30);
+        });
+
+        serviceCollection.AddSingleton<DtddClient>();
+        // WarningCache and UserPreferenceStore are added in Phase 2.3 / 2.4.
     }
 }
