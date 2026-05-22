@@ -31,9 +31,13 @@ public class DtddController : ControllerBase
     // Mirrors Jellyfin.Api.Constants.InternalClaimTypes.UserId (not in MediaBrowser.Controller package).
     private const string UserIdClaimType = "Jellyfin-UserId";
 
+    /// <summary>Cap on how long an inline /topics seed is allowed to run.</summary>
+    private static readonly TimeSpan InlineSeedTimeout = TimeSpan.FromSeconds(20);
+
     private readonly DtddClient _dtdd;
     private readonly WarningCache _cache;
     private readonly UserPreferenceStore _prefsStore;
+    private readonly TopicSeeder _seeder;
     private readonly ILibraryManager _libraryManager;
     private readonly ILogger<DtddController> _logger;
 
@@ -41,12 +45,14 @@ public class DtddController : ControllerBase
         DtddClient dtdd,
         WarningCache cache,
         UserPreferenceStore prefsStore,
+        TopicSeeder seeder,
         ILibraryManager libraryManager,
         ILogger<DtddController> logger)
     {
         _dtdd = dtdd;
         _cache = cache;
         _prefsStore = prefsStore;
+        _seeder = seeder;
         _libraryManager = libraryManager;
         _logger = logger;
     }
@@ -151,13 +157,50 @@ public class DtddController : ControllerBase
     }
 
     /// <summary>
-    /// Returns the cumulative topic catalog (everything ever seen via /media/{id}
-    /// or explicit SeedTopics calls). Returns an empty list before the cache is
-    /// warmed; the picker UI should hint at that.
+    /// Returns the cumulative topic catalog. When the catalog is empty and an
+    /// API key IS configured, this endpoint runs the seeder inline (bounded by
+    /// <see cref="InlineSeedTimeout"/>) so the very first picker open populates
+    /// without the user having to manually run the scheduled task.
+    ///
+    /// <para>
+    /// Why inline here: the startup hosted service runs once at boot, and on
+    /// fresh installs the API key is set AFTER startup — so the boot seed
+    /// no-ops. Lazy seed on first /topics request handles that case.
+    /// </para>
     /// </summary>
     [HttpGet("topics")]
-    public ActionResult<List<DtddTopic>> GetTopics()
+    public async Task<ActionResult<List<DtddTopic>>> GetTopics(CancellationToken cancellationToken = default)
     {
+        var topics = _cache.GetTopics();
+        if (topics.Count > 0)
+        {
+            return topics;
+        }
+
+        var cfg = Plugin.Instance?.Configuration;
+        if (cfg is null || string.IsNullOrWhiteSpace(cfg.ApiKey))
+        {
+            return topics; // empty — picker will show its empty-state hint
+        }
+
+        _logger.LogInformation("Topic catalog empty on /topics request; running inline seed (bounded at {Seconds}s)", InlineSeedTimeout.TotalSeconds);
+
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        cts.CancelAfter(InlineSeedTimeout);
+
+        try
+        {
+            await _seeder.RunAsync(cts.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            _logger.LogInformation("Inline seed hit the {Seconds}s budget; returning partial cache state", InlineSeedTimeout.TotalSeconds);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Inline topic seed during /topics request failed");
+        }
+
         return _cache.GetTopics();
     }
 

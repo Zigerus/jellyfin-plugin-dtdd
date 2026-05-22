@@ -32,21 +32,20 @@
         if (window.ApiClient && typeof window.ApiClient.ajax === 'function' && typeof window.ApiClient.getUrl === 'function') {
             var req = {
                 type: method,
-                url: window.ApiClient.getUrl(path),
-                dataType: 'json'
+                url: window.ApiClient.getUrl(path)
             };
+            // Only request JSON parsing when we actually expect a JSON body.
+            // PUT /DTDD/prefs returns 204 No Content; setting dataType:'json'
+            // makes ApiClient.ajax throw with "unexpected end of data" when it
+            // tries to JSON.parse the empty response body.
+            if (method === 'GET') {
+                req.dataType = 'json';
+            }
             if (opts.body !== undefined) {
                 req.data = JSON.stringify(opts.body);
                 req.contentType = 'application/json';
             }
-            return window.ApiClient.ajax(req).catch(function (err) {
-                // 204 No Content trips ApiClient.ajax with dataType:json.
-                // Treat as success when the underlying status is OK.
-                if (err && err.status && err.status >= 200 && err.status < 300) {
-                    return null;
-                }
-                throw err;
-            });
+            return window.ApiClient.ajax(req);
         }
 
         // Fallback (unlikely to authenticate properly, but keeps the script
