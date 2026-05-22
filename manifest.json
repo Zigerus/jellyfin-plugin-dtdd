@@ -1,0 +1,12 @@
+[
+  {
+    "guid": "4479e434-651e-48f7-a2ee-bec0bdadec5e",
+    "name": "DoesTheDogDie",
+    "overview": "Per-user content warnings driven by doesthedogdie.com",
+    "description": "Surfaces a Safe / Not Safe badge on Jellyfin item detail pages, computed per Jellyfin user from each user's configured phobia topic list. Requires the JavaScript Injector companion plugin to render the UI; backend API works without it.",
+    "owner": "Zigerus",
+    "category": "General",
+    "imageUrl": "",
+    "versions": []
+  }
+]

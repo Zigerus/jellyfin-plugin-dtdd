@@ -6,7 +6,7 @@ Surfaces a **Safe** / **Not Safe** badge on the item detail page, computed per J
 
 ## Status
 
-Pre-release scaffold. No installable build yet — Phases 2–4 are still in flight.
+Installable via the Jellyfin plugin catalog (see Install below). Active development; see the Roadmap section for v1.x ideas.
 
 - Plugin GUID: `4479e434-651e-48f7-a2ee-bec0bdadec5e`
 - Target Jellyfin ABI: `10.11.0.0`
@@ -21,19 +21,33 @@ Install order:
 1. JavaScript Injector
 2. This plugin
 
-## Install (placeholder — wired up in Phase 4)
+## Install
 
-Once releases are live, add the manifest URL to Jellyfin's plugin catalog (Dashboard → Plugins → Catalog → ⚙ → ➕):
+1. Install [JavaScript Injector](https://github.com/n00bcodr/Jellyfin-JavaScript-Injector) first (required for the UI badge).
+2. In Jellyfin: **Dashboard → Plugins → Catalog → ⚙ (gear icon, top-right) → ➕**.
+3. Add this repository:
 
-```text
-https://zigerus.github.io/jellyfin-plugin-dtdd/manifest.json
-```
+   ```text
+   Repository Name: DoesTheDogDie
+   Repository URL:  https://zigerus.github.io/jellyfin-plugin-dtdd/manifest.json
+   ```
 
-## Configuration (placeholder — wired up in Phase 3)
+4. Save. The plugin now shows in **Catalog → General → DoesTheDogDie** — click Install.
+5. Restart Jellyfin (Dashboard → Settings → General → Restart).
 
+## Configuration
+
+**Admin (one-time):**
 1. Get a DoesTheDogDie API key at <https://www.doesthedogdie.com> (free account → request API access).
 2. Dashboard → Plugins → DoesTheDogDie → paste API key → save.
-3. On any item detail page, click "Configure your phobia list" → pick topics → save. Each Jellyfin user has their own phobia list.
+
+**Each user (their own phobia list):**
+1. Click your avatar (top-right) → **Settings**.
+2. Scroll to **DoesTheDogDie** (under your username's section, alongside Profile / Display / Playback / etc.).
+3. Pick the topics you want flagged → **Save phobias**.
+4. Open any movie or TV show — the metadata row shows a **DTDD: Safe** / **DTDD: Not Safe (N matches)** / **DTDD: Not in database** badge.
+
+**Library scanning** runs as a weekly task by default. Admins can trigger an immediate scan via Dashboard → Scheduled Tasks → "Prefetch DoesTheDogDie warnings" → ▶.
 
 ## Screenshots
 
