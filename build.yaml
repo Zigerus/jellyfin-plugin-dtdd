@@ -16,6 +16,10 @@ owner: "Zigerus"
 artifacts:
 - "Jellyfin.Plugin.Dtdd.dll"
 changelog: >
-  v0.2: lookups and topic catalog migrated to DTDD API v3 (exact TMDB/IMDB
-  resolution, full-catalog topic seed); per-item detail stays on v1 for
-  top-comment data. Prefetch/warm pacing tuned to the free-tier rate limit.
+  v0.2: DTDD API v3 migration — exact IMDB/TMDB lookup ladder resolves
+  titles v1 fuzzy search could not, and the topic catalog now seeds in one
+  pass from the v3 catalog endpoint (all topics categorized). Badges gained
+  a details view: hover lists matched phobias one per line, selecting the
+  badge opens a dialog with community yes/no vote counts. Badges are now
+  reachable by TV-remote arrow keys, and the remote Back button closes
+  plugin dialogs instead of navigating away from the item page.

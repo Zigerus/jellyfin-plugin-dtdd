@@ -2,7 +2,7 @@
 
 DoesTheDogDie.com content warnings for Jellyfin, with per-user phobia filtering.
 
-Surfaces a **Safe** / **Not Safe** badge on the item detail page, computed per Jellyfin user from the user's configured phobia topic list. Strict threshold: any single YES vote on any of the user's selected phobias = Not Safe.
+Surfaces a **Safe** / **Not Safe** badge on the item detail page, computed per Jellyfin user from the user's configured phobia topic list. Strict threshold: any single YES vote on any of the user's selected phobias = Not Safe. Selecting the badge opens a breakdown of which phobias matched and how the DTDD community voted on each.
 
 ## Status
 
@@ -48,12 +48,13 @@ Install order:
 2. Scroll to **DoesTheDogDie** (under your username's section, alongside Profile / Display / Playback / etc.).
 3. Pick the topics you want flagged → **Save phobias**.
 4. Open any movie or TV show — the metadata row shows a **DTDD: Safe** / **DTDD: Not Safe (N matches)** / **DTDD: Not in database** badge.
+5. Hover the badge for the matched phobias (one per line, with vote counts), or select it — by mouse, keyboard, or TV remote — to open the same breakdown as a dialog.
 
 **Library scanning** runs as a weekly task by default. Admins can trigger an immediate scan via Dashboard → Scheduled Tasks → "Prefetch DoesTheDogDie warnings" → ▶.
 
 ## Screenshots
 
-_Screenshots are staged with fictional demo titles and original placeholder artwork; the DTDD badge, verdicts, and picker are real plugin output._
+_Screenshots are staged with fictional demo titles, original placeholder artwork, and substituted phobia names; the DTDD badge, verdicts, vote counts, and picker are real plugin output._
 
 **Not Safe** — a topic on the user's phobia list has YES votes on DoesTheDogDie:
 
@@ -63,11 +64,22 @@ _Screenshots are staged with fictional demo titles and original placeholder artw
 
 ![Safe badge on the item detail page](docs/screenshots/badge-safe.png)
 
+**Details** — hovering the badge lists the matched phobias one per line; clicking it (or pressing OK on a TV remote) opens the same breakdown with community yes/no vote counts:
+
+![Details dialog listing matched phobias with vote counts](docs/screenshots/details.png)
+
 **Per-user phobia picker** — user Settings → DoesTheDogDie:
 
 ![Phobia picker modal](docs/screenshots/picker.png)
 
 ## Development
+
+### Client-side UI notes (since v0.2)
+
+Two Jellyfin-web integration constraints the injected script has to respect, both found on an LG TV remote:
+
+- **TV focus.** Jellyfin's directional (D-pad / arrow-key) focus manager only visits genuinely focusable elements — real `<button>` / `<a>` / inputs, or nodes carrying its `focusable` class. A `<span tabindex="0">` is reachable by browser tab-order and by pointer (including LG's Magic Remote cursor) but is **invisible to arrow-key navigation**. The verdict badges are therefore real `<button>`s with `focusable`, plus CSS resets so they render identically to the original spans.
+- **Remote Back button.** A bare `<dialog>` sits outside Jellyfin's router history, so the remote's Back key reaches the app router, navigates away from the item page, and leaves the dialog stranded on screen. Both dialogs (details and picker) now push a same-URL history entry on open — mirroring jellyfin-web's own `dialogHelper` — so Back closes the dialog and leaves the user on the page; other close paths consume the pushed entry so the next Back behaves normally.
 
 ### DTDD API usage (since v0.2)
 
