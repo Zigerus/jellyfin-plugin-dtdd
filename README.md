@@ -53,7 +53,7 @@ Install order:
 
 ## Screenshots
 
-_Placeholder — to be added after Phase 3 lands the UI._
+_Coming soon._
 
 ## Development
 
@@ -67,7 +67,7 @@ Output DLL: `Jellyfin.Plugin.Dtdd/bin/Debug/net9.0/Jellyfin.Plugin.Dtdd.dll`
 
 ### Sideload onto a running Jellyfin server
 
-While Phase 4 (release pipeline + manifest hosting) is deferred, the development cycle is: build → package → drop the DLL into Jellyfin's plugins dir → restart Jellyfin → verify in Dashboard → Plugins.
+Releases install via the plugin catalog (see Install above). For fast development iteration — testing changes before tagging a release — the cycle is: build → package → drop the DLL into Jellyfin's plugins dir → restart Jellyfin → verify in Dashboard → Plugins.
 
 The Servarr host (192.168.50.129) runs `lscr.io/linuxserver/jellyfin:latest` with a bind mount at `/home/zigerus/appdata/jellyfin` → `/config`. Jellyfin reads plugins from `/config/data/plugins/` inside the container, which maps to `/home/zigerus/appdata/jellyfin/data/plugins/` on the host filesystem. (Existing plugins like JavaScript Injector and Intro Skipper live here too.)
 
@@ -84,7 +84,7 @@ The script:
 3. Bundles the DLL + a generated `meta.json` into `Jellyfin.Plugin.Dtdd_<version>.zip`.
 4. `scp`'s the zip to `servarr:/tmp/`.
 5. Unpacks into `/home/zigerus/appdata/jellyfin/data/plugins/DoesTheDogDie_<version>/`.
-6. **Stops and prompts for explicit confirmation** before restarting Jellyfin (production restart is destructive per the strict-gate rule in [zigerusgames/CLAUDE.md](../zigerusgames/CLAUDE.md)).
+6. **Stops and prompts for explicit confirmation** before restarting Jellyfin (a production restart interrupts active streams, so it is never automatic).
 7. On confirm: `ssh servarr docker restart jellyfin`.
 
 **Manual sideload** (if the script doesn't fit a case):
