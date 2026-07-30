@@ -1,6 +1,6 @@
 // dtdd-injector.js — DoesTheDogDie badge + picker for Jellyfin web.
 //
-// Loaded by n00bcodr/Jellyfin-JavaScript-Injector. Three responsibilities:
+// Loaded by n00bcodr/Jellyfin-JavaScript-Injector. Four responsibilities:
 //   1. Render a Safe / Not Safe / Unknown / not_configured badge on item
 //      detail pages.
 //   2. Inject a "DoesTheDogDie" entry into the user-facing Settings page
@@ -8,6 +8,10 @@
 //      admin Dashboard).
 //   3. Open the phobia picker modal from either (a) the Settings entry,
 //      or (b) the not_configured CTA badge.
+//   4. Details on demand for Safe / Not Safe badges: hover tooltip lists one
+//      matched phobia per line with yes/no vote counts; click (or
+//      Enter/Space) opens a small dialog with the same data, styled like the
+//      picker (touch/TV users have no hover).
 //
 // Picker save flow: PUT /DTDD/prefs → POST /DTDD/scan (background library
 // warm) → close modal → re-render badge for current item.
@@ -64,8 +68,15 @@
         style.textContent = [
             '.dtdd-badge-wrapper { display: inline-flex; align-items: center; margin: 0 0.5em 0 0; vertical-align: middle; }',
             '.dtdd-badge { display: inline-flex; align-items: center; padding: 0.15em 0.55em; border-radius: 0.35em; font-size: 0.85em; border: 1px solid currentColor; line-height: 1.3; }',
+            // Clickable badges are real <button>s so Jellyfin\'s TV focus
+            // manager (arrow-key / D-pad navigation) picks them up; reset the
+            // UA button chrome so they render identically to the old spans.
+            'button.dtdd-badge { background: transparent; font: inherit; font-size: 0.85em; margin: 0; appearance: none; -webkit-appearance: none; }',
             '.dtdd-badge.dtdd-clickable { cursor: pointer; text-decoration: none; }',
             '.dtdd-badge.dtdd-clickable:hover { opacity: 0.85; }',
+            // Remote/keyboard users need to SEE focus; on pointer clicks the
+            // details dialog steals focus immediately so this barely flashes.
+            '.dtdd-badge.dtdd-clickable:focus { outline: 2px solid currentColor; outline-offset: 2px; }',
             '.dtdd-safe { color: var(--theme-success-color, #43a047); }',
             '.dtdd-not-safe { color: var(--theme-error-color, #e53935); }',
             '.dtdd-unknown { color: var(--theme-text-color, currentColor); opacity: 0.55; }',
@@ -86,7 +97,17 @@
             // raised + button-submit) where possible — they pick the right
             // text/background colors from the active theme. We only override
             // a couple of layout fields and the cancel-button variant.
-            '.dtdd-picker .dtdd-cancel { background: transparent !important; color: inherit !important; border: 1px solid currentColor !important; }'
+            '.dtdd-picker .dtdd-cancel { background: transparent !important; color: inherit !important; border: 1px solid currentColor !important; }',
+            // Details dialog: reuses the dtdd-picker dialog/header/footer styling
+            // wholesale (same class), narrowed + given per-phobia vote rows.
+            'dialog.dtdd-picker.dtdd-details { width: min(440px, 92vw); }',
+            '.dtdd-details-list { max-height: 55vh; overflow-y: auto; }',
+            '.dtdd-details-row { display: flex; align-items: baseline; justify-content: space-between; gap: 1em; padding: 0.35em 0; font-size: 0.95em; border-bottom: 1px solid var(--theme-card-border-color, rgba(255,255,255,0.08)); }',
+            '.dtdd-details-row:last-child { border-bottom: none; }',
+            '.dtdd-details-votes { white-space: nowrap; opacity: 0.9; font-variant-numeric: tabular-nums; }',
+            '.dtdd-details-votes .dtdd-yes { color: var(--theme-error-color, #e53935); font-weight: 600; }',
+            '.dtdd-details-votes .dtdd-no { color: var(--theme-success-color, #43a047); font-weight: 600; }',
+            '.dtdd-details-none { padding: 0.5em 0; opacity: 0.8; }'
             // Settings entry styling: inherit from native emby-button / listItem-border / listItem classes. No custom CSS.
         ].join('\n');
         document.head.appendChild(style);
@@ -159,18 +180,25 @@
         var badge;
         switch (state) {
             case 'safe':
-                badge = document.createElement('span');
+                badge = document.createElement('button');
+                badge.type = 'button';
                 badge.className = 'dtdd-badge dtdd-safe';
                 badge.textContent = 'DTDD: Safe';
+                badge.title = 'None of your tracked phobias have YES votes on this title.\n\nClick for details.';
+                makeDetailsClickable(badge, safety);
                 break;
             case 'not_safe':
-                badge = document.createElement('span');
+                badge = document.createElement('button');
+                badge.type = 'button';
                 badge.className = 'dtdd-badge dtdd-not-safe';
                 var n = matchedPhobias.length;
                 badge.textContent = 'DTDD: Not Safe (' + n + ' match' + (n === 1 ? '' : 'es') + ')';
                 if (matchedPhobias.length) {
-                    badge.title = matchedPhobias.map(function (p) { return p.name || p.Name; }).join(', ');
+                    // One phobia per line, with vote counts — a comma-joined
+                    // single line was unreadable past two or three matches.
+                    badge.title = matchedPhobias.map(phobiaLine).join('\n') + '\n\nClick for details.';
                 }
+                makeDetailsClickable(badge, safety);
                 break;
             case 'unknown':
                 badge = document.createElement('span');
@@ -181,9 +209,7 @@
                 // CTA: click opens the picker modal in-place.
                 badge = document.createElement('button');
                 badge.type = 'button';
-                badge.className = 'dtdd-badge dtdd-not-configured dtdd-clickable';
-                badge.style.background = 'transparent';
-                badge.style.font = 'inherit';
+                badge.className = 'dtdd-badge dtdd-not-configured dtdd-clickable focusable';
                 badge.textContent = 'Configure your phobia list';
                 badge.title = 'Opens the DoesTheDogDie picker';
                 badge.addEventListener('click', function (e) {
@@ -200,6 +226,156 @@
 
         wrapper.appendChild(badge);
         return wrapper;
+    }
+
+    function phobiaVotes(p) {
+        return {
+            yes: Number(p.yesSum != null ? p.yesSum : p.YesSum) || 0,
+            no: Number(p.noSum != null ? p.noSum : p.NoSum) || 0
+        };
+    }
+
+    function phobiaLine(p) {
+        var v = phobiaVotes(p);
+        return (p.name || p.Name || '?') + ' — ' + v.yes + ' yes / ' + v.no + ' no';
+    }
+
+    // Clickable badges are real <button>s (see buildBadge): natively
+    // focusable in browsers AND eligible for Jellyfin's TV focus manager,
+    // whose arrow-key navigation only visits real focusable tags or elements
+    // carrying its `focusable` class (a tabindex'd span is invisible to it —
+    // found the hard way on an LG remote). No manual keydown handler: real
+    // buttons synthesize click on Enter/Space, and adding our own would
+    // double-open the dialog.
+    function makeDetailsClickable(badge, safety) {
+        badge.classList.add('dtdd-clickable');
+        badge.classList.add('focusable');
+        badge.setAttribute('aria-haspopup', 'dialog');
+        badge.addEventListener('click', function (e) {
+            e.preventDefault();
+            e.stopPropagation();
+            openDetails(safety);
+        });
+    }
+
+    // Mount + modality + TV-back integration for our dialogs. A raw <dialog>
+    // doesn't participate in Jellyfin's router history, so the remote's Back
+    // button would navigate the app away and strand the open dialog on
+    // screen (found on the LG remote). On open we push a same-URL history
+    // entry: Back pops that entry, we close the dialog, and the router sees
+    // no hash change — the user stays on the page. Closing any other way
+    // (Close button, Escape, save flow) consumes the pushed entry with
+    // history.back() so the NEXT Back press behaves normally. This mirrors
+    // what jellyfin-web's own dialogHelper does. viewhide is the belt to
+    // that suspender: programmatic navigation while open (voice command,
+    // deep link) closes the dialog rather than letting it outlive its page.
+    function presentDialog(dialog) {
+        document.body.appendChild(dialog);
+
+        var poppedByHistory = false;
+
+        function onPopstate() {
+            poppedByHistory = true;
+            if (dialog.open) dialog.close();
+        }
+        function onViewHide() {
+            if (dialog.open) dialog.close();
+        }
+
+        history.pushState({ dtddDialog: true }, '', location.href);
+        window.addEventListener('popstate', onPopstate);
+        document.addEventListener('viewhide', onViewHide);
+
+        dialog.addEventListener('close', function () {
+            window.removeEventListener('popstate', onPopstate);
+            document.removeEventListener('viewhide', onViewHide);
+            dialog.remove();
+            // Consume our pushed entry — but only if it's still the top of
+            // the stack. If the app navigated while we were open (viewhide
+            // path), the router owns the current entry and a blind back()
+            // would yank the user off the page they just navigated to.
+            if (!poppedByHistory && history.state && history.state.dtddDialog) {
+                history.back();
+            }
+        });
+
+        if (typeof dialog.showModal === 'function') {
+            dialog.showModal();
+        } else {
+            dialog.setAttribute('open', '');
+        }
+    }
+
+    // Small read-only dialog with one row per matched phobia and its vote
+    // counts. Reuses the picker's dialog classes so the styling is identical
+    // by construction; exists because hover tooltips don't on touch/TV.
+    function openDetails(safety) {
+        var state = safety.state || safety.State;
+        var matched = safety.matchedPhobias || safety.MatchedPhobias || [];
+        var configured = Number(safety.configuredPhobiaCount != null ? safety.configuredPhobiaCount : safety.ConfiguredPhobiaCount) || 0;
+
+        var dialog = document.createElement('dialog');
+        dialog.className = 'dtdd-picker dtdd-details';
+
+        var header = document.createElement('div');
+        header.className = 'dtdd-picker-header';
+        var title = document.createElement('h2');
+        title.textContent = state === 'not_safe' ? 'Not Safe — matched phobias' : 'Safe';
+        header.appendChild(title);
+        var count = document.createElement('span');
+        count.className = 'dtdd-picker-count';
+        count.textContent = state === 'not_safe'
+            ? matched.length + ' of ' + configured + ' tracked'
+            : configured + ' tracked';
+        header.appendChild(count);
+        dialog.appendChild(header);
+
+        var list = document.createElement('div');
+        list.className = 'dtdd-details-list';
+        if (state === 'not_safe' && matched.length) {
+            for (var i = 0; i < matched.length; i++) {
+                var p = matched[i];
+                var row = document.createElement('div');
+                row.className = 'dtdd-details-row';
+                var name = document.createElement('span');
+                name.textContent = p.name || p.Name || '?';
+                row.appendChild(name);
+                var votes = document.createElement('span');
+                votes.className = 'dtdd-details-votes';
+                var v = phobiaVotes(p);
+                var yesEl = document.createElement('span');
+                yesEl.className = 'dtdd-yes';
+                yesEl.textContent = v.yes + ' yes';
+                var noEl = document.createElement('span');
+                noEl.className = 'dtdd-no';
+                noEl.textContent = v.no + ' no';
+                votes.appendChild(yesEl);
+                votes.appendChild(document.createTextNode(' / '));
+                votes.appendChild(noEl);
+                row.appendChild(votes);
+                list.appendChild(row);
+            }
+        } else {
+            var none = document.createElement('div');
+            none.className = 'dtdd-details-none';
+            none.textContent = 'None of your ' + configured + ' tracked phobia topic' + (configured === 1 ? '' : 's') + ' have YES votes on this title.';
+            list.appendChild(none);
+        }
+        dialog.appendChild(list);
+
+        var footer = document.createElement('div');
+        footer.className = 'dtdd-picker-footer';
+        var closeBtn = document.createElement('button');
+        closeBtn.type = 'button';
+        closeBtn.className = 'emby-button dtdd-cancel';
+        closeBtn.style.padding = '0.45em 1.1em';
+        closeBtn.style.borderRadius = '0.3em';
+        closeBtn.textContent = 'Close';
+        closeBtn.addEventListener('click', function () { dialog.close(); });
+        footer.appendChild(closeBtn);
+        dialog.appendChild(footer);
+
+        presentDialog(dialog);
     }
 
     async function renderBadgeFor(itemId, container) {
@@ -518,13 +694,7 @@
         footer.appendChild(saveBtn);
         dialog.appendChild(footer);
 
-        document.body.appendChild(dialog);
-        dialog.addEventListener('close', function () { dialog.remove(); });
-        if (typeof dialog.showModal === 'function') {
-            dialog.showModal();
-        } else {
-            dialog.setAttribute('open', '');
-        }
+        presentDialog(dialog);
     }
 
     // -----------------------------------------------------------------------
