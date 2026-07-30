@@ -59,6 +59,7 @@ public class DtddClient
 {
     private const int MaxAttempts = 5;
     private const int NegativeCacheTtlMinutes = 5;
+    private const int ResolveMissTtlMinutes = 15;
 
     private static readonly TimeSpan[] BackoffBase =
     {
@@ -86,6 +87,7 @@ public class DtddClient
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILogger<DtddClient> _logger;
     private readonly ConcurrentDictionary<string, DateTimeOffset> _negativeCache = new();
+    private readonly ConcurrentDictionary<string, DateTimeOffset> _resolveMissCache = new();
 
     public DtddClient(IHttpClientFactory httpClientFactory, ILogger<DtddClient> logger)
     {
@@ -95,11 +97,28 @@ public class DtddClient
 
     /// <summary>
     /// Resolution ladder used by every lookup path (safety endpoint, prefetch
-    /// task, library warmer): TMDB exact → IMDB exact → title+year → fuzzy
-    /// title with score threshold. Each rung falls through on miss, so an item
-    /// genuinely absent from DTDD costs up to three search calls — bounded in
-    /// practice by the negative cache. Returns the v1 /media/{id} payload of
-    /// the winner (see <see cref="GetByDtddIdAsync"/> for why detail stays v1).
+    /// task, library warmer): IMDB exact → TMDB exact → title+year → fuzzy
+    /// title with score threshold. Returns the v1 /media/{id} payload of the
+    /// winner (see <see cref="GetByDtddIdAsync"/> for why detail stays v1).
+    ///
+    /// <para>
+    /// <b>Rung order is empirical, not aesthetic</b> (measured 2026-07-30):
+    /// DTDD answers <c>?imdb=</c> in ~0.1s whether it hits or misses, while
+    /// <c>?tmdb=</c> chronically takes ~15s per call (repeat lookups included)
+    /// — but tmdb is the only rung that resolves titles DTDD has no IMDB
+    /// mapping for (observed on anime series). So imdb goes first (cheap
+    /// either way) and tmdb second (slow, thorough). Successful resolutions
+    /// cache for CacheTtlDays, so the tmdb toll is paid once per item.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Resolve-miss cache</b>: an item absent from DTDD walks every rung
+    /// (~16s worst case because of tmdb). Only successes land in WarningCache,
+    /// so without protection every badge view of such an item would repay that
+    /// cost. Full-ladder misses are therefore remembered in-memory for
+    /// <see cref="ResolveMissTtlMinutes"/> minutes, keyed by the resolution
+    /// inputs. In-memory only; restarts forget.
+    /// </para>
     /// </summary>
     public async Task<DtddMediaDetails?> ResolveAsync(
         int? tmdbId,
@@ -109,13 +128,19 @@ public class DtddClient
         int itemTypeId,
         CancellationToken cancellationToken = default)
     {
-        if (tmdbId.HasValue)
+        var missKey = string.Create(
+            CultureInfo.InvariantCulture,
+            $"{tmdbId?.ToString(CultureInfo.InvariantCulture) ?? "-"}|{imdbId ?? "-"}|{title ?? "-"}|{year?.ToString(CultureInfo.InvariantCulture) ?? "-"}|{itemTypeId}");
+
+        if (_resolveMissCache.TryGetValue(missKey, out var missUntil))
         {
-            var byTmdb = await GetByTmdbAsync(tmdbId.Value, cancellationToken).ConfigureAwait(false);
-            if (byTmdb is not null)
+            if (DateTimeOffset.UtcNow < missUntil)
             {
-                return byTmdb;
+                _logger.LogDebug("DTDD resolve-miss cache hit for {Key}; skipping ladder", missKey);
+                return null;
             }
+
+            _resolveMissCache.TryRemove(missKey, out _);
         }
 
         if (!string.IsNullOrWhiteSpace(imdbId))
@@ -127,11 +152,25 @@ public class DtddClient
             }
         }
 
-        if (!string.IsNullOrWhiteSpace(title))
+        if (tmdbId.HasValue)
         {
-            return await GetByTitleAsync(title, year, itemTypeId, cancellationToken).ConfigureAwait(false);
+            var byTmdb = await GetByTmdbAsync(tmdbId.Value, cancellationToken).ConfigureAwait(false);
+            if (byTmdb is not null)
+            {
+                return byTmdb;
+            }
         }
 
+        if (!string.IsNullOrWhiteSpace(title))
+        {
+            var byTitle = await GetByTitleAsync(title, year, itemTypeId, cancellationToken).ConfigureAwait(false);
+            if (byTitle is not null)
+            {
+                return byTitle;
+            }
+        }
+
+        _resolveMissCache[missKey] = DateTimeOffset.UtcNow.AddMinutes(ResolveMissTtlMinutes);
         return null;
     }
 
