@@ -69,6 +69,10 @@ _Screenshots are staged with fictional demo titles and original placeholder artw
 
 ## Development
 
+### DTDD API usage (since v0.2)
+
+Lookups use API v3 (`/api/v3/items` with `?tmdb=`, `?imdb=`, `?name=&releaseYear=`, `?q=`) and the topic catalog seeds from `/api/v3/topics` joined with `/api/v3/topiccategories`. Per-item detail deliberately remains on the v1 `/media/{id}` endpoint: v3's `topicItemStats` omit the per-topic top comment that powers `matchedPhobias[].topComment` (verified against live payloads 2026-07-30). The free API tier allows 30 requests/min and 5,000/month; the prefetch task and library warmer pace themselves at 4.5s per fetched item to stay inside that while leaving headroom for interactive lookups.
+
 ### Build
 
 ```bash
@@ -140,7 +144,7 @@ ssh servarr 'rm -rf /home/zigerus/appdata/jellyfin/data/plugins/DoesTheDogDie_0.
 - v2: Episode-level data is not available from DoesTheDogDie (per-title only). The comment preview will stay at show/movie granularity.
 - v1.x: ship `IRemoteMetadataProvider<Movie>` / `IRemoteMetadataProvider<Series>` so the Dtdd ProviderId gets written during normal metadata refresh and the v1 backfill-on-read shortcut can be removed.
 - v3 (blocked on API tier): scene-level trigger warnings during playback — an overlay ~10 seconds before a flagged scene, filtered to the watching user's phobia list, with an offered skip to DTDD's safe-resume point. DTDD's API v3 (`GET /api/v3/items/{id}/ratings`) serves exactly the needed data: trigger timestamp (`position1/2/3` as H:M:S), safe-to-resume timestamp (`safePosition1/2/3`), a spoiler-safe `cueDescription`, and `isSceneAlert: true` on professionally produced entries. Ratings access is tier-gated (verified 2026-07-30): Free = none (403 `upgrade_required` — even on titles the website shows fully unlocked, e.g. John Wick's 52 Scene Alerts, and even filtered to the site's eight "Already Free" severe-trigger topics, so neither site unlock transfers to the API), Startup = community timestamps, Pro+ = Scene Alerts. The $5/month site supporter subscription is a website product; whether it affects the same account's API tier is unstated in the docs. Path forward: DTDD invites early API-tier conversations at licensing@doesthedogdie.com. Delivery would target web-based players first (the injected script already runs there and can track playback position); native clients (Swiftfin, Roku, Kodi) don't execute injected JS and would need a Jellyfin Media Segments fallback, which is per-item rather than per-user.
-- v1.x, independent of tier: migrate the client to API v3 — `/api/v3/items?tmdb={id}` exact-match lookup works on the free tier and eliminates the v1 `/dddsearch` fuzzy-title matching; v3 item detail also inlines `topicName` per stat.
+- ~~v1.x, independent of tier: migrate the client to API v3~~ — **shipped in v0.2**: lookups resolve via an exact ladder (`?tmdb=` → `?imdb=` → `?name=&releaseYear=` → scored `?q=`) and the topic catalog seeds in one pass from `/api/v3/topics` + `/api/v3/topiccategories`. Per-item detail intentionally stays on v1 `/media/{id}` because v3's topic stats omit the per-topic top comment that the v2 "Why?" modal needs; revisit if v3 grows a comment field.
 
 ## Built with AI assistance
 

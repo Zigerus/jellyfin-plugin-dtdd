@@ -1,14 +1,25 @@
+using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Jellyfin.Plugin.Dtdd.Api.Models;
 using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.Dtdd.Services;
 
 /// <summary>
-/// Orchestrates the DoesTheDogDie topic-catalog seed. Hits a deliberately broad
-/// set of <c>/dddsearch?q=&lt;term&gt;</c> queries and accumulates the topics each
-/// response returns. Idempotent (delegates to <see cref="WarningCache.SeedTopics"/>
-/// which uses <c>INSERT … ON CONFLICT DO NOTHING</c>).
+/// Seeds the DoesTheDogDie topic catalog from API v3: one
+/// <c>/api/v3/topiccategories</c> call for the category-name map and one
+/// <c>/api/v3/topics</c> call for the full catalog, joined by
+/// <c>topicCategoryId</c> into the <see cref="DtddTopic"/> shape the picker
+/// expects (nested <c>TopicCategory.name</c> drives the picker's grouping).
+///
+/// <para>
+/// This replaces the v1 approach of accumulating topics from five fuzzy
+/// <c>/dddsearch</c> queries — v1 had no topics endpoint, so the catalog could
+/// only grow organically. v3 serves the complete catalog in one call, so a
+/// single seed is authoritative.
+/// </para>
 ///
 /// <para>
 /// <b>Trigger points</b> (both call the same <see cref="RunAsync"/>):
@@ -22,30 +33,13 @@ namespace Jellyfin.Plugin.Dtdd.Services;
 /// </list>
 ///
 /// <para>
-/// <b>Seed query rationale</b> — the queries below were chosen to span DTDD's
-/// topic categories (animal harm, violence, phobia/horror, body horror, gore).
-/// Each query returns a <c>topics[]</c> field in the search response containing
-/// the topics that match — five generic terms cover most of the catalog without
-/// pulling per-title /media/{id} payloads. Honors the same DtddClient retry
-/// policy (5 attempts, exponential backoff, negative-cache on exhaustion).
+/// Idempotent: delegates to <see cref="WarningCache.SeedTopics"/> which uses
+/// <c>INSERT … ON CONFLICT DO NOTHING</c>. Existing rows (including v1-era
+/// ones) are never rewritten; only newly-published topics are added.
 /// </para>
 /// </summary>
 public class TopicSeeder
 {
-    /// <summary>
-    /// Canonical seed queries. Each is a single broad term that DTDD's search
-    /// will match against many titles and topics. The intersection of all five
-    /// covers most of the topic catalog.
-    /// </summary>
-    private static readonly string[] SeedQueries =
-    {
-        "death",     // covers death/dying topic family
-        "violence",  // covers assault, weapons, fighting topics
-        "fear",      // covers phobias / horror tropes
-        "spider",    // covers specific phobia surface — different from "fear"
-        "blood",     // covers body horror / gore topics
-    };
-
     private readonly DtddClient _dtdd;
     private readonly WarningCache _cache;
     private readonly ILogger<TopicSeeder> _logger;
@@ -59,29 +53,36 @@ public class TopicSeeder
 
     public async Task RunAsync(CancellationToken cancellationToken = default)
     {
-        _logger.LogInformation("DTDD topic-seed: starting refresh ({Count} seed queries)", SeedQueries.Length);
+        _logger.LogInformation("DTDD topic-seed: fetching v3 topic catalog");
 
-        var totalObserved = 0;
-        var succeeded = 0;
+        var categories = await _dtdd.GetTopicCategoriesAsync(cancellationToken).ConfigureAwait(false);
+        var categoryNames = (categories ?? new List<DtddV3TopicCategory>())
+            .ToDictionary(c => c.Id, c => c.Name);
 
-        foreach (var query in SeedQueries)
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var topics = await _dtdd.GetTopicsAsync(cancellationToken).ConfigureAwait(false);
+        if (topics is null || topics.Count == 0)
         {
-            cancellationToken.ThrowIfCancellationRequested();
-
-            var response = await _dtdd.SearchByQueryAsync(query, cancellationToken).ConfigureAwait(false);
-            if (response is null)
-            {
-                _logger.LogDebug("DTDD topic-seed: query {Query} returned no response (retries exhausted or empty result)", query);
-                continue;
-            }
-
-            _cache.SeedTopics(response.Topics);
-            totalObserved += response.Topics.Count;
-            succeeded++;
+            _logger.LogWarning("DTDD topic-seed: /api/v3/topics returned nothing (retries exhausted or empty); catalog unchanged");
+            return;
         }
 
+        var mapped = topics.Select(t => new DtddTopic
+        {
+            Id = t.Id,
+            Name = t.Name,
+            Description = t.Description,
+            TopicCategoryId = t.TopicCategoryId,
+            TopicCategory = t.TopicCategoryId is int catId && categoryNames.TryGetValue(catId, out var catName)
+                ? new DtddTopicCategory { Id = catId, Name = catName }
+                : null,
+        });
+
+        _cache.SeedTopics(mapped);
+
         _logger.LogInformation(
-            "DTDD topic-seed complete: {Succeeded}/{Total} queries returned data, {Observed} topic mentions inserted (duplicates ignored)",
-            succeeded, SeedQueries.Length, totalObserved);
+            "DTDD topic-seed complete: {Topics} topics across {Categories} categories observed (existing rows untouched)",
+            topics.Count, categoryNames.Count);
     }
 }

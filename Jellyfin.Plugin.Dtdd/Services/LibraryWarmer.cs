@@ -28,7 +28,9 @@ namespace Jellyfin.Plugin.Dtdd.Services;
 /// </summary>
 public class LibraryWarmer
 {
-    private static readonly TimeSpan PerRequestDelay = TimeSpan.FromSeconds(1);
+    // Same pacing rationale as PrefetchWarningsTask: up to two requests per
+    // cache-miss item against the free tier's 30/min budget.
+    private static readonly TimeSpan PerRequestDelay = TimeSpan.FromSeconds(4.5);
     private static int _running; // 0 = idle, 1 = warming
 
     private readonly DtddClient _dtdd;
@@ -169,17 +171,9 @@ public class LibraryWarmer
             return WarmOutcome.CacheHit;
         }
 
-        DtddMediaDetails? details = null;
         var imdbStr = item.GetProviderId(MetadataProvider.Imdb);
-        if (!string.IsNullOrWhiteSpace(imdbStr))
-        {
-            details = await _dtdd.GetByImdbAsync(imdbStr, cancellationToken).ConfigureAwait(false);
-        }
-        else if (!string.IsNullOrWhiteSpace(item.Name))
-        {
-            var typeId = item is Series ? DtddConstants.ItemTypeSeries : DtddConstants.ItemTypeMovie;
-            details = await _dtdd.GetByTitleAsync(item.Name, item.ProductionYear, typeId, cancellationToken).ConfigureAwait(false);
-        }
+        var typeId = item is Series ? DtddConstants.ItemTypeSeries : DtddConstants.ItemTypeMovie;
+        var details = await _dtdd.ResolveAsync(tmdbId, imdbStr, item.Name, item.ProductionYear, typeId, cancellationToken).ConfigureAwait(false);
 
         if (details is null)
         {

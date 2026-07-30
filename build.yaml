@@ -1,7 +1,7 @@
 ---
 name: "DoesTheDogDie"
 guid: "4479e434-651e-48f7-a2ee-bec0bdadec5e"
-version: "0.1.0.0"
+version: "0.2.0.0"
 targetAbi: "10.11.0.0"
 framework: "net9.0"
 overview: "Per-user content warnings driven by doesthedogdie.com"
@@ -16,4 +16,6 @@ owner: "Zigerus"
 artifacts:
 - "Jellyfin.Plugin.Dtdd.dll"
 changelog: >
-  Initial scaffold (Phase 1).
+  v0.2: lookups and topic catalog migrated to DTDD API v3 (exact TMDB/IMDB
+  resolution, full-catalog topic seed); per-item detail stays on v1 for
+  top-comment data. Prefetch/warm pacing tuned to the free-tier rate limit.
