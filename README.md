@@ -139,6 +139,7 @@ ssh servarr 'rm -rf /home/zigerus/appdata/jellyfin/data/plugins/DoesTheDogDie_0.
 - v2: "Why?" modal on the Not Safe badge — clicking the badge opens a modal listing each matched phobia with its top community comment and total comment count. The data is already in the v1 API response; just needs the UI.
 - v2: Episode-level data is not available from DoesTheDogDie (per-title only). The comment preview will stay at show/movie granularity.
 - v1.x: ship `IRemoteMetadataProvider<Movie>` / `IRemoteMetadataProvider<Series>` so the Dtdd ProviderId gets written during normal metadata refresh and the v1 backfill-on-read shortcut can be removed.
+- v3 (blocked on data access): scene-level trigger warnings during playback — an overlay ~10 seconds before a flagged scene, filtered to the watching user's phobia list. DTDD crowdsources per-trigger timecodes (a popular title can carry dozens), so no comment-text parsing is needed — but the timeline fields (`allTriggersTimeline`, `personalizedTimeline`) are withheld on the free API tier (`hiddenTimecodeCount` equals the full `itemTimecodeCount`); a DoesTheDogDie Plus key is expected, not yet verified, to unlock them. Delivery would target web-based players first (the injected script already runs there and can track playback position); native clients (Swiftfin, Roku, Kodi) don't execute injected JS and would need a Jellyfin Media Segments fallback, which is per-item rather than per-user.
 
 ## Built with AI assistance
 
