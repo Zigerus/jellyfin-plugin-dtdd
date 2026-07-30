@@ -30,7 +30,10 @@ namespace Jellyfin.Plugin.Dtdd.ScheduledTasks;
 /// </summary>
 public class PrefetchWarningsTask : IScheduledTask
 {
-    private static readonly TimeSpan PerRequestDelay = TimeSpan.FromSeconds(1);
+    // A cache-miss item costs up to two requests (v3 search + v1 detail); the
+    // free tier allows 30/min. 4.5s per fetched item keeps a worst-case run
+    // under ~27 req/min, leaving headroom for interactive /safety lookups.
+    private static readonly TimeSpan PerRequestDelay = TimeSpan.FromSeconds(4.5);
 
     private readonly DtddClient _dtdd;
     private readonly WarningCache _cache;
@@ -172,17 +175,9 @@ public class PrefetchWarningsTask : IScheduledTask
             return false;
         }
 
-        DtddMediaDetails? details = null;
         var imdbStr = item.GetProviderId(MetadataProvider.Imdb);
-        if (!string.IsNullOrWhiteSpace(imdbStr))
-        {
-            details = await _dtdd.GetByImdbAsync(imdbStr, cancellationToken).ConfigureAwait(false);
-        }
-        else if (!string.IsNullOrWhiteSpace(item.Name))
-        {
-            var typeId = item is Series ? DtddConstants.ItemTypeSeries : DtddConstants.ItemTypeMovie;
-            details = await _dtdd.GetByTitleAsync(item.Name, item.ProductionYear, typeId, cancellationToken).ConfigureAwait(false);
-        }
+        var typeId = item is Series ? DtddConstants.ItemTypeSeries : DtddConstants.ItemTypeMovie;
+        var details = await _dtdd.ResolveAsync(tmdbId, imdbStr, item.Name, item.ProductionYear, typeId, cancellationToken).ConfigureAwait(false);
 
         if (details is not null)
         {

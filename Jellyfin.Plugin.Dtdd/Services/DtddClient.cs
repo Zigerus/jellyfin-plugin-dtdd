@@ -18,6 +18,15 @@ namespace Jellyfin.Plugin.Dtdd.Services;
 /// HTTP client wrapper for doesthedogdie.com.
 ///
 /// <para>
+/// <b>Endpoint mix (v0.2)</b> — lookups and the topic catalog use API v3
+/// (<c>/api/v3/items</c>, <c>/api/v3/topics</c>, <c>/api/v3/topiccategories</c>);
+/// per-item detail deliberately stays on v1 <c>/media/{id}</c> because only v1
+/// carries the per-topic top comment (see <see cref="GetByDtddIdAsync"/>).
+/// Free-tier budget: 30 requests/min, 5,000/month — callers that loop
+/// (prefetch, warmer) pace themselves accordingly.
+/// </para>
+///
+/// <para>
 /// <b>Retry policy</b> — bounded at <see cref="MaxAttempts"/> = 5 (initial + 4 retries).
 /// Backoff is exponential with ±25% jitter. Two schedules:
 /// </para>
@@ -85,8 +94,70 @@ public class DtddClient
     }
 
     /// <summary>
-    /// Look up by IMDB ID (tt-prefixed). Returns the /media/{id} payload of the
-    /// first match, or null on miss / exhausted retries.
+    /// Resolution ladder used by every lookup path (safety endpoint, prefetch
+    /// task, library warmer): TMDB exact → IMDB exact → title+year → fuzzy
+    /// title with score threshold. Each rung falls through on miss, so an item
+    /// genuinely absent from DTDD costs up to three search calls — bounded in
+    /// practice by the negative cache. Returns the v1 /media/{id} payload of
+    /// the winner (see <see cref="GetByDtddIdAsync"/> for why detail stays v1).
+    /// </summary>
+    public async Task<DtddMediaDetails?> ResolveAsync(
+        int? tmdbId,
+        string? imdbId,
+        string? title,
+        int? year,
+        int itemTypeId,
+        CancellationToken cancellationToken = default)
+    {
+        if (tmdbId.HasValue)
+        {
+            var byTmdb = await GetByTmdbAsync(tmdbId.Value, cancellationToken).ConfigureAwait(false);
+            if (byTmdb is not null)
+            {
+                return byTmdb;
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(imdbId))
+        {
+            var byImdb = await GetByImdbAsync(imdbId, cancellationToken).ConfigureAwait(false);
+            if (byImdb is not null)
+            {
+                return byImdb;
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(title))
+        {
+            return await GetByTitleAsync(title, year, itemTypeId, cancellationToken).ConfigureAwait(false);
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Exact lookup by TMDB ID via <c>/api/v3/items?tmdb=</c>. The strongest
+    /// rung of the ladder: Jellyfin items are cache-keyed by TMDB ID, so this
+    /// makes lookup key == cache key with no fuzzy matching at all.
+    /// </summary>
+    public async Task<DtddMediaDetails?> GetByTmdbAsync(int tmdbId, CancellationToken cancellationToken = default)
+    {
+        var results = await FetchJsonAsync<List<DtddV3Item>>(
+            $"/api/v3/items?tmdb={tmdbId}",
+            cancellationToken).ConfigureAwait(false);
+
+        var first = results?.FirstOrDefault();
+        if (first is null)
+        {
+            _logger.LogDebug("No DTDD match for TMDB {TmdbId}", tmdbId);
+            return null;
+        }
+
+        return await GetByDtddIdAsync(first.Id, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Exact lookup by IMDB ID (tt-prefixed) via <c>/api/v3/items?imdb=</c>.
     /// </summary>
     public async Task<DtddMediaDetails?> GetByImdbAsync(string imdbId, CancellationToken cancellationToken = default)
     {
@@ -95,11 +166,11 @@ public class DtddClient
             return null;
         }
 
-        var search = await FetchJsonAsync<DtddSearchResponse>(
-            $"/dddsearch?imdb={Uri.EscapeDataString(imdbId)}",
+        var results = await FetchJsonAsync<List<DtddV3Item>>(
+            $"/api/v3/items?imdb={Uri.EscapeDataString(imdbId)}",
             cancellationToken).ConfigureAwait(false);
 
-        var first = search?.Items.FirstOrDefault();
+        var first = results?.FirstOrDefault();
         if (first is null)
         {
             _logger.LogDebug("No DTDD match for IMDB {ImdbId}", imdbId);
@@ -110,8 +181,9 @@ public class DtddClient
     }
 
     /// <summary>
-    /// Title+year+type fallback when IMDB ID isn't available. Scores candidates
-    /// and returns the best match's full details, or null.
+    /// Title fallback when no provider ID resolves: exact <c>?name=&amp;releaseYear=</c>
+    /// first (when a year is known), then fuzzy <c>?q=</c> filtered through
+    /// <see cref="FindBestMatch"/> with the same confidence threshold as v1.
     /// </summary>
     public async Task<DtddMediaDetails?> GetByTitleAsync(
         string title,
@@ -124,11 +196,24 @@ public class DtddClient
             return null;
         }
 
-        var search = await FetchJsonAsync<DtddSearchResponse>(
-            $"/dddsearch?q={Uri.EscapeDataString(title)}",
+        if (year.HasValue)
+        {
+            var exact = await FetchJsonAsync<List<DtddV3Item>>(
+                $"/api/v3/items?name={Uri.EscapeDataString(title)}&releaseYear={year.Value}",
+                cancellationToken).ConfigureAwait(false);
+
+            var exactHit = exact?.FirstOrDefault(i => i.ItemTypeId == itemTypeId);
+            if (exactHit is not null)
+            {
+                return await GetByDtddIdAsync(exactHit.Id, cancellationToken).ConfigureAwait(false);
+            }
+        }
+
+        var fuzzy = await FetchJsonAsync<List<DtddV3Item>>(
+            $"/api/v3/items?q={Uri.EscapeDataString(title)}",
             cancellationToken).ConfigureAwait(false);
 
-        var best = FindBestMatch(search?.Items, title, year, itemTypeId);
+        var best = FindBestMatch(fuzzy, title, year, itemTypeId);
         if (best is null)
         {
             _logger.LogDebug("No DTDD match for title {Title} (year={Year} type={TypeId})", title, year, itemTypeId);
@@ -139,8 +224,16 @@ public class DtddClient
     }
 
     /// <summary>
-    /// Direct /media/{id} fetch — used by cache refresh and the prefetch task
-    /// when we already know the DTDD ID from a prior lookup.
+    /// Direct /media/{id} fetch — used once a lookup rung has resolved the DTDD ID.
+    ///
+    /// <para>
+    /// Detail deliberately stays on the v1 endpoint: v3's
+    /// <c>/api/v3/items/{id}</c> topicItemStats carry only vote sums and
+    /// counts, while v1's payload also carries the per-topic top comment and
+    /// nested topic object that <c>SafetyResponse.topComment</c> and the topic
+    /// catalog accumulate from (verified against live payloads 2026-07-30).
+    /// Revisit if v3 ever adds the comment field.
+    /// </para>
     /// </summary>
     public async Task<DtddMediaDetails?> GetByDtddIdAsync(int dtddId, CancellationToken cancellationToken = default)
     {
@@ -148,20 +241,21 @@ public class DtddClient
     }
 
     /// <summary>
-    /// Raw search by free-text query, returning both <c>items</c> and the
-    /// <c>topics</c> field. The TopicSeeder uses this to broaden the topic
-    /// catalog via deliberate canonical queries.
+    /// Full topic catalog via <c>/api/v3/topics</c> — one call replaces the v1
+    /// seeder's five fuzzy /dddsearch queries.
     /// </summary>
-    public async Task<DtddSearchResponse?> SearchByQueryAsync(string query, CancellationToken cancellationToken = default)
+    public async Task<List<DtddV3Topic>?> GetTopicsAsync(CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(query))
-        {
-            return null;
-        }
+        return await FetchJsonAsync<List<DtddV3Topic>>("/api/v3/topics", cancellationToken).ConfigureAwait(false);
+    }
 
-        return await FetchJsonAsync<DtddSearchResponse>(
-            $"/dddsearch?q={Uri.EscapeDataString(query)}",
-            cancellationToken).ConfigureAwait(false);
+    /// <summary>
+    /// Topic categories via <c>/api/v3/topiccategories</c>, joined onto topics
+    /// by the seeder so the picker can group by category name.
+    /// </summary>
+    public async Task<List<DtddV3TopicCategory>?> GetTopicCategoriesAsync(CancellationToken cancellationToken = default)
+    {
+        return await FetchJsonAsync<List<DtddV3TopicCategory>>("/api/v3/topiccategories", cancellationToken).ConfigureAwait(false);
     }
 
     private async Task<T?> FetchJsonAsync<T>(string path, CancellationToken cancellationToken)
@@ -196,7 +290,7 @@ public class DtddClient
                 using var req = new HttpRequestMessage(HttpMethod.Get, url);
                 req.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
                 req.Headers.TryAddWithoutValidation("X-API-KEY", cfg.ApiKey);
-                req.Headers.UserAgent.ParseAdd("Jellyfin.Plugin.Dtdd/0.1 (+https://github.com/Zigerus/jellyfin-plugin-dtdd)");
+                req.Headers.UserAgent.ParseAdd("Jellyfin.Plugin.Dtdd/0.2 (+https://github.com/Zigerus/jellyfin-plugin-dtdd)");
 
                 using var resp = await client.SendAsync(req, cancellationToken).ConfigureAwait(false);
 
@@ -308,9 +402,11 @@ public class DtddClient
     /// <summary>
     /// Score candidates by (exact-name &gt; normalized-name) + year-proximity + type filter.
     /// Returns null when no candidate clears the minimum confidence (70).
+    /// (v3 entries carry no cleanName, so the v1 cleanName clause is gone; a
+    /// fuzzy candidate now needs at least a normalized-name match to qualify.)
     /// </summary>
-    internal static DtddMediaItem? FindBestMatch(
-        IReadOnlyList<DtddMediaItem>? items,
+    internal static DtddV3Item? FindBestMatch(
+        IReadOnlyList<DtddV3Item>? items,
         string title,
         int? year,
         int itemTypeId)
@@ -328,7 +424,7 @@ public class DtddClient
 
         var normalized = NormalizeTitle(title);
 
-        DtddMediaItem? best = null;
+        DtddV3Item? best = null;
         var bestScore = 0;
 
         foreach (var item in typeFiltered)
@@ -342,11 +438,6 @@ public class DtddClient
             else if (string.Equals(NormalizeTitle(item.Name), normalized, StringComparison.OrdinalIgnoreCase))
             {
                 score += 80;
-            }
-            else if (!string.IsNullOrEmpty(item.CleanName) &&
-                     string.Equals(item.CleanName, normalized, StringComparison.OrdinalIgnoreCase))
-            {
-                score += 70;
             }
 
             if (year.HasValue && !string.IsNullOrEmpty(item.ReleaseYear) &&

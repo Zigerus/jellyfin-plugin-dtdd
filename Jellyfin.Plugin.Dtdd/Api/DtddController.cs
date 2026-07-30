@@ -103,15 +103,8 @@ public class DtddController : ControllerBase
 
         if (details is null)
         {
-            if (!string.IsNullOrWhiteSpace(imdbStr))
-            {
-                details = await _dtdd.GetByImdbAsync(imdbStr, cancellationToken).ConfigureAwait(false);
-            }
-            else if (!string.IsNullOrWhiteSpace(item.Name))
-            {
-                var typeId = item is Series ? DtddConstants.ItemTypeSeries : DtddConstants.ItemTypeMovie;
-                details = await _dtdd.GetByTitleAsync(item.Name, item.ProductionYear, typeId, cancellationToken).ConfigureAwait(false);
-            }
+            var typeId = item is Series ? DtddConstants.ItemTypeSeries : DtddConstants.ItemTypeMovie;
+            details = await _dtdd.ResolveAsync(tmdbId, imdbStr, item.Name, item.ProductionYear, typeId, cancellationToken).ConfigureAwait(false);
 
             if (details is not null && tmdbId.HasValue)
             {
