@@ -53,6 +53,8 @@ Install order:
 
 ## Screenshots
 
+_Screenshots are staged with fictional demo titles and original placeholder artwork; the DTDD badge, verdicts, and picker are real plugin output._
+
 **Not Safe** — a topic on the user's phobia list has YES votes on DoesTheDogDie:
 
 ![Not Safe badge on the item detail page](docs/screenshots/badge-not-safe.png)
