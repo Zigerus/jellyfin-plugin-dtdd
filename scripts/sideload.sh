@@ -2,8 +2,8 @@
 #
 # sideload.sh — build, package, ship, and (gated) restart Jellyfin on Servarr.
 #
-# Phase 4 (signed releases via GitHub Actions + manifest hosting) is deferred
-# until the repo flips public. Until then this script is the dev cycle.
+# Releases install via the plugin catalog (GitHub Actions + Pages manifest);
+# this script is the fast dev-iteration path for testing before tagging.
 #
 # Flags:
 #   --no-restart        Sideload the plugin but skip the restart step entirely

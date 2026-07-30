@@ -27,8 +27,9 @@ namespace Jellyfin.Plugin.Dtdd.Services;
 ///         set of /dddsearch queries; see Services/TopicSeeder.cs for the list.</item>
 /// </list>
 /// <para>
-/// Once a topic row exists, its JSON is not overwritten — a topic name/description
-/// change at DTDD will not propagate. Acceptable for v1; rare enough to ignore.
+/// Seeded rows are refreshed on every seeder run (v3 catalog is authoritative
+/// since v0.2); rows observed opportunistically from media payloads never
+/// overwrite existing data. See <c>SeedTopicInner</c> for the split.
 /// </para>
 /// </summary>
 public class WarningCache
@@ -128,7 +129,7 @@ public class WarningCache
         {
             if (stat.Topic is not null)
             {
-                SeedTopicInner(conn, tx, stat.Topic, now);
+                SeedTopicInner(conn, tx, stat.Topic, now, authoritative: false);
             }
         }
 
@@ -148,7 +149,7 @@ public class WarningCache
 
         foreach (var topic in topics)
         {
-            SeedTopicInner(conn, tx, topic, now);
+            SeedTopicInner(conn, tx, topic, now, authoritative: true);
         }
 
         tx.Commit();
@@ -213,16 +214,25 @@ public class WarningCache
         return conn;
     }
 
-    private static void SeedTopicInner(SqliteConnection conn, SqliteTransaction tx, DtddTopic topic, long now)
+    private static void SeedTopicInner(SqliteConnection conn, SqliteTransaction tx, DtddTopic topic, long now, bool authoritative)
     {
         using var cmd = conn.CreateCommand();
         cmd.Transaction = tx;
-        // ON CONFLICT DO NOTHING — idempotent seed semantics. Re-running on an
-        // already-populated table adds only newly-observed topics; existing rows
-        // are not touched. Topic JSON is effectively immutable post-insert (v1).
-        cmd.CommandText = @"
-            INSERT INTO topics (topic_id, json, last_seen_at) VALUES ($id, $j, $t)
-            ON CONFLICT(topic_id) DO NOTHING;";
+        // Two conflict behaviors by source:
+        //  - authoritative (TopicSeeder, v3 full-catalog endpoint since v0.2):
+        //    ON CONFLICT DO UPDATE, so re-seeding refreshes names/descriptions
+        //    and (crucially) category data that v1-era rows often lacked —
+        //    under v1's DO NOTHING those rows stayed uncategorized in the
+        //    picker forever.
+        //  - opportunistic (Put's accumulation from /media/{id} payloads):
+        //    ON CONFLICT DO NOTHING, because media-payload topic objects can
+        //    carry less data (missing category) than the seeded row they'd
+        //    overwrite.
+        cmd.CommandText = authoritative
+            ? @"INSERT INTO topics (topic_id, json, last_seen_at) VALUES ($id, $j, $t)
+                ON CONFLICT(topic_id) DO UPDATE SET json = excluded.json, last_seen_at = excluded.last_seen_at;"
+            : @"INSERT INTO topics (topic_id, json, last_seen_at) VALUES ($id, $j, $t)
+                ON CONFLICT(topic_id) DO NOTHING;";
         cmd.Parameters.AddWithValue("$id", topic.Id);
         cmd.Parameters.AddWithValue("$j", JsonSerializer.Serialize(topic));
         cmd.Parameters.AddWithValue("$t", now);
