@@ -53,7 +53,17 @@ Install order:
 
 ## Screenshots
 
-_Coming soon._
+**Not Safe** — a topic on the user's phobia list has YES votes on DoesTheDogDie:
+
+![Not Safe badge on the item detail page](docs/screenshots/badge-not-safe.png)
+
+**Safe** — the title is in DTDD's database and none of the user's phobias match:
+
+![Safe badge on the item detail page](docs/screenshots/badge-safe.png)
+
+**Per-user phobia picker** — user Settings → DoesTheDogDie:
+
+![Phobia picker modal](docs/screenshots/picker.png)
 
 ## Development
 
