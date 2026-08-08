@@ -85,62 +85,6 @@ Two Jellyfin-web integration constraints the injected script has to respect, bot
 
 Lookups use API v3 (`/api/v3/items`) via a ladder ordered by measured latency, not aesthetics: `?imdb=` first (~0.1s, hit or miss), `?tmdb=` second (chronically ~15s per call on DTDD's side as of 2026-07, but the only rung that resolves titles DTDD has no IMDB mapping for), then `?name=&releaseYear=` and scored `?q=`. Successful resolutions cache for the configured TTL; full-ladder misses are remembered in memory for 15 minutes so items absent from DTDD don't repay the slow rung on every badge view. The topic catalog seeds from `/api/v3/topics` joined with `/api/v3/topiccategories`; seeder rows are authoritative and refresh existing rows, while topics observed in media payloads only fill gaps. Per-item detail deliberately remains on the v1 `/media/{id}` endpoint: v3's `topicItemStats` omit the per-topic top comment that powers `matchedPhobias[].topComment` (verified against live payloads 2026-07-30). The free API tier allows 30 requests/min and 5,000/month; the prefetch task and library warmer pace themselves at 4.5s per fetched item to stay inside that while leaving headroom for interactive lookups.
 
-### Build
-
-```bash
-dotnet build
-```
-
-Output DLL: `Jellyfin.Plugin.Dtdd/bin/Debug/net9.0/Jellyfin.Plugin.Dtdd.dll`
-
-### Sideload onto a running Jellyfin server
-
-Releases install via the plugin catalog (see Install above). For fast development iteration — testing changes before tagging a release — the cycle is: build → package → drop the DLL into Jellyfin's plugins dir → restart Jellyfin → verify in Dashboard → Plugins.
-
-The Servarr host (192.168.50.129) runs `lscr.io/linuxserver/jellyfin:latest` with a bind mount at `/home/zigerus/appdata/jellyfin` → `/config`. Jellyfin reads plugins from `/config/data/plugins/` inside the container, which maps to `/home/zigerus/appdata/jellyfin/data/plugins/` on the host filesystem. (Existing plugins like JavaScript Injector and Intro Skipper live here too.)
-
-**One-shot sideload via the helper script:**
-
-```bash
-./scripts/sideload.sh
-```
-
-The script:
-
-1. Runs `dotnet build -c Release`.
-2. Reads `<Version>` from `Directory.Build.props`.
-3. Bundles the DLL + a generated `meta.json` into `Jellyfin.Plugin.Dtdd_<version>.zip`.
-4. `scp`'s the zip to `servarr:/tmp/`.
-5. Unpacks into `/home/zigerus/appdata/jellyfin/data/plugins/DoesTheDogDie_<version>/`.
-6. **Stops and prompts for explicit confirmation** before restarting Jellyfin (a production restart interrupts active streams, so it is never automatic).
-7. On confirm: `ssh servarr docker restart jellyfin`.
-
-**Manual sideload** (if the script doesn't fit a case):
-
-```bash
-# On HP Mini
-dotnet build -c Release
-VERSION="$(grep -oP '<Version>\K[^<]+' Directory.Build.props)"
-mkdir -p /tmp/dtdd-pkg
-cp Jellyfin.Plugin.Dtdd/bin/Release/net9.0/Jellyfin.Plugin.Dtdd.dll /tmp/dtdd-pkg/
-# write meta.json (see scripts/sideload.sh for the canonical template)
-cd /tmp/dtdd-pkg && zip "Jellyfin.Plugin.Dtdd_$VERSION.zip" Jellyfin.Plugin.Dtdd.dll meta.json
-scp "Jellyfin.Plugin.Dtdd_$VERSION.zip" servarr:/tmp/
-
-# On Servarr (matches existing parent-dir ownership zigerus:zigerus; container can read it)
-ssh servarr "mkdir -p /home/zigerus/appdata/jellyfin/data/plugins/DoesTheDogDie_$VERSION && cd /home/zigerus/appdata/jellyfin/data/plugins/DoesTheDogDie_$VERSION && unzip -o /tmp/Jellyfin.Plugin.Dtdd_$VERSION.zip && rm /tmp/Jellyfin.Plugin.Dtdd_$VERSION.zip"
-
-# Confirm before restarting — this WILL interrupt Jellyfin streams
-ssh servarr 'docker restart jellyfin'
-```
-
-**Verify the install:** Jellyfin Dashboard → Plugins. `DoesTheDogDie 0.1.0.0` should appear. Jellyfin logs (`docker logs jellyfin --tail 100`) will show plugin load on startup; look for the GUID `4479e434-651e-48f7-a2ee-bec0bdadec5e`.
-
-**Cleanup an old version:** Jellyfin loads every subdirectory under `plugins/`, so when a new version comes in, remove the previous folder to avoid duplicate-instance warnings:
-
-```bash
-ssh servarr 'rm -rf /home/zigerus/appdata/jellyfin/data/plugins/DoesTheDogDie_0.0.x'
-```
 
 ## Known limitations (v1)
 
