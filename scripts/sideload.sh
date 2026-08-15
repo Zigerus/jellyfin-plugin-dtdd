@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# sideload.sh — build, package, ship, and (gated) restart Jellyfin on Servarr.
+# sideload.sh — build, package, ship, and (gated) restart a remote Jellyfin.
 #
 # Releases install via the plugin catalog (GitHub Actions + Pages manifest);
 # this script is the fast dev-iteration path for testing before tagging.
@@ -11,7 +11,7 @@
 #                       (intended for "I know what I'm doing" reruns; don't
 #                       use this from automation that runs without watching)
 #
-# Strict gate (per ~/zigerusgames/CLAUDE.md destructive-action rules):
+# Strict gate:
 #   The restart step interrupts production Jellyfin streams. Default behavior
 #   is to prompt for explicit "yes" before issuing `docker restart jellyfin`.
 
@@ -25,15 +25,27 @@ PROJECT_DIR="$REPO_ROOT/Jellyfin.Plugin.Dtdd"
 PROPS_FILE="$REPO_ROOT/Directory.Build.props"
 BUILD_YAML="$REPO_ROOT/build.yaml"
 
-REMOTE_HOST="servarr"
-REMOTE_TMP="/tmp"
-# Jellyfin loads plugins from /config/data/plugins inside the container.
-# With the linuxserver/jellyfin compose mount /home/zigerus/appdata/jellyfin:/config,
-# that maps to /home/zigerus/appdata/jellyfin/data/plugins on the host.
-# (The older /config/plugins location was found empty during Phase 3 pre-flight;
-# the real install path is /config/data/plugins per the running container's layout.)
-REMOTE_PLUGINS_DIR="/home/zigerus/appdata/jellyfin/data/plugins"
-REMOTE_CONTAINER="jellyfin"
+# Deploy-target settings are host-specific and deliberately NOT hardcoded here.
+# They load from scripts/sideload.env (gitignored) or the environment. Template:
+#
+#   REMOTE_HOST=your-jellyfin-host       # SSH host or ssh-config alias
+#   REMOTE_PLUGINS_DIR=/path/to/jellyfin-config/data/plugins
+#   REMOTE_CONTAINER=jellyfin            # optional (default: jellyfin)
+#   REMOTE_TMP=/tmp                      # optional (default: /tmp)
+#
+# Jellyfin loads plugins from /config/data/plugins inside the container —
+# note data/plugins, NOT the (empty, unused) top-level /config/plugins. With a
+# containerized Jellyfin and a bind mount <host config dir>:/config, the
+# plugins dir is <host config dir>/data/plugins on the host filesystem.
+ENV_FILE="$REPO_ROOT/scripts/sideload.env"
+if [[ -f "$ENV_FILE" ]]; then
+    # shellcheck source=/dev/null
+    source "$ENV_FILE"
+fi
+REMOTE_HOST="${REMOTE_HOST:-}"
+REMOTE_TMP="${REMOTE_TMP:-/tmp}"
+REMOTE_PLUGINS_DIR="${REMOTE_PLUGINS_DIR:-}"
+REMOTE_CONTAINER="${REMOTE_CONTAINER:-jellyfin}"
 
 DOTNET="${DOTNET:-$HOME/.dotnet/dotnet}"
 
@@ -56,6 +68,16 @@ for arg in "$@"; do
             ;;
     esac
 done
+
+# -----------------------------------------------------------------------------
+# 0) Require deploy-target config (fail fast, before building anything)
+# -----------------------------------------------------------------------------
+if [[ -z "$REMOTE_HOST" || -z "$REMOTE_PLUGINS_DIR" ]]; then
+    echo "ERROR: REMOTE_HOST and REMOTE_PLUGINS_DIR are not set." >&2
+    echo "       Create $ENV_FILE (gitignored) or export them; see the" >&2
+    echo "       template in this script's Config section." >&2
+    exit 78  # EX_CONFIG
+fi
 
 # -----------------------------------------------------------------------------
 # 1) Build
@@ -112,7 +134,7 @@ EOF
 ZIP_NAME="Jellyfin.Plugin.Dtdd_$VERSION.zip"
 ZIP_PATH="$STAGE/$ZIP_NAME"
 # Use Python's zipfile rather than `zip` so this script works on hosts where
-# the `zip` binary isn't installed (HP Mini doesn't ship it by default).
+# the `zip` binary isn't installed (not every dev machine ships it).
 python3 -c "
 import sys, zipfile
 stage, zip_name = sys.argv[1], sys.argv[2]
@@ -123,7 +145,7 @@ with zipfile.ZipFile(f'{stage}/{zip_name}', 'w', zipfile.ZIP_DEFLATED) as z:
 echo "==> Packaged $ZIP_NAME ($(stat -c%s "$ZIP_PATH") bytes)"
 
 # -----------------------------------------------------------------------------
-# 4) Ship to Servarr
+# 4) Ship to the remote host
 # -----------------------------------------------------------------------------
 echo "==> Copying to $REMOTE_HOST:$REMOTE_TMP/"
 scp -q "$ZIP_PATH" "$REMOTE_HOST:$REMOTE_TMP/$ZIP_NAME"
@@ -133,11 +155,11 @@ scp -q "$ZIP_PATH" "$REMOTE_HOST:$REMOTE_TMP/$ZIP_NAME"
 # -----------------------------------------------------------------------------
 REMOTE_PLUGIN_DIR="$REMOTE_PLUGINS_DIR/${PLUGIN_NAME}_$VERSION"
 echo "==> Unpacking on $REMOTE_HOST into $REMOTE_PLUGIN_DIR"
-# Unquoted heredoc is deliberate: all $VARS here are LOCAL (computed on HP Mini
-# from the build); we want them substituted before the script is piped to the
-# remote bash. Nothing in the body needs to expand server-side.
-# Servarr doesn't ship `unzip` either, so use python's zipfile module — same
-# approach as the local packaging step above for consistency.
+# Unquoted heredoc is deliberate: all $VARS here are LOCAL (computed on the
+# dev machine from the build); we want them substituted before the script is
+# piped to the remote bash. Nothing in the body needs to expand server-side.
+# The remote host may not ship `unzip` either, so use python's zipfile module —
+# same approach as the local packaging step above for consistency.
 # shellcheck disable=SC2087
 ssh "$REMOTE_HOST" bash -s <<REMOTE_EOF
 set -euo pipefail

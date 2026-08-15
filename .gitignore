@@ -27,6 +27,9 @@ out/
 *.coverage
 *.coveragexml
 
+# Local deploy-target config for scripts/sideload.sh — host-specific, never commit
+scripts/sideload.env
+
 # Secrets (DTDD API key, etc.) — must never enter the repo
 .env
 .env.local
