@@ -8,7 +8,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <!-- Pinned to 10.11.8 — the version the production Servarr container is running
+    <!-- Pinned to 10.11.8 — the Jellyfin version the production deployment runs
          (lscr.io/linuxserver/jellyfin:latest at the time of v1 development).
          The wildcard 10.11.*-* resolves to whatever's newest on NuGet, which
          caused a "Could not load assembly MediaBrowser.Common 10.11.9.0" load
