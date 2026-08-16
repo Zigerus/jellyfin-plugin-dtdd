@@ -8,16 +8,24 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <!-- Pinned to 10.11.8 — the Jellyfin version the production deployment runs
-         (lscr.io/linuxserver/jellyfin:latest at the time of v1 development).
-         The wildcard 10.11.*-* resolves to whatever's newest on NuGet, which
-         caused a "Could not load assembly MediaBrowser.Common 10.11.9.0" load
-         failure on the 10.11.8 host. Bump this in lockstep with the deployment
-         when the container upgrades. -->
-    <PackageReference Include="Jellyfin.Controller" Version="10.11.8">
+    <!-- Pinned to the ABI FLOOR (10.11.0), not to the host's version.
+         .NET assembly binding lets a newer host satisfy a lower reference, so a
+         10.11.0-referencing build loads on every 10.11.x server; the reverse
+         fails, which is what the old wildcard (10.11.*-*) did when it resolved
+         to 10.11.9 against a 10.11.8 host.
+
+         Do NOT "bump in lockstep with the deployment" — that was the previous
+         rule here and it was wrong. build.yaml/manifest.json declare
+         targetAbi 10.11.0.0, and Jellyfin's compatibility test is
+         `_appVersion >= targetAbi` (Emby.Server.Implementations/Plugins/
+         PluginManager.cs), so the catalog offers this plugin to every 10.11.x
+         server. Pinning above the floor ships an artifact that cannot load on
+         the lower half of its own declared range: the previous 10.11.8 pin was
+         broken for 10.11.0-10.11.7. Keep this equal to targetAbi. -->
+    <PackageReference Include="Jellyfin.Controller" Version="10.11.0">
       <ExcludeAssets>runtime</ExcludeAssets>
     </PackageReference>
-    <PackageReference Include="Jellyfin.Model" Version="10.11.8">
+    <PackageReference Include="Jellyfin.Model" Version="10.11.0">
       <ExcludeAssets>runtime</ExcludeAssets>
     </PackageReference>
     <PackageReference Include="Microsoft.Data.Sqlite" Version="9.0.10" />

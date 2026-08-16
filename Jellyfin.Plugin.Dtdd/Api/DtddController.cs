@@ -269,9 +269,15 @@ public class DtddController : ControllerBase
     /// prefetch task. Returns 202 Accepted with {"started": true|false} —
     /// <c>false</c> means a previous warm is still running and this request was
     /// ignored (idempotent: no harm in calling multiple times).
+    ///
+    /// <para>
+    /// Deliberately takes no CancellationToken: the warm outlives this request
+    /// by design, and binding the request token here previously cancelled it
+    /// almost immediately. See <see cref="LibraryWarmer.TryStartBackground"/>.
+    /// </para>
     /// </summary>
     [HttpPost("scan")]
-    public ActionResult<object> StartScan(CancellationToken cancellationToken = default)
+    public ActionResult<object> StartScan()
     {
         var userId = GetCallingUserId();
         if (userId == Guid.Empty)
@@ -279,7 +285,7 @@ public class DtddController : ControllerBase
             return Unauthorized();
         }
 
-        var started = _warmer.TryStartBackground(cancellationToken);
+        var started = _warmer.TryStartBackground();
         return Accepted(new { started, alreadyRunning = !started });
     }
 
