@@ -16,10 +16,12 @@ owner: "Zigerus"
 artifacts:
 - "Jellyfin.Plugin.Dtdd.dll"
 changelog: >
-  v0.2: DTDD API v3 migration — exact IMDB/TMDB lookup ladder resolves
-  titles v1 fuzzy search could not, and the topic catalog now seeds in one
-  pass from the v3 catalog endpoint (all topics categorized). Badges gained
-  a details view: hover lists matched phobias one per line, selecting the
-  badge opens a dialog with community yes/no vote counts. Badges are now
-  reachable by TV-remote arrow keys, and the remote Back button closes
-  plugin dialogs instead of navigating away from the item page.
+  v0.2.1: Fixes the "Save phobias" library scan, which stopped almost as soon
+  as it started — the background warm was tied to the HTTP request that
+  triggered it, so it was cancelled the moment that request completed and only
+  ever processed an item or two. It now runs to completion, so badges populate
+  after saving instead of waiting for the weekly task (which is off by
+  default). Also fixes plugin loading on Jellyfin 10.11.0 through 10.11.7: the
+  build referenced 10.11.8 while declaring compatibility from 10.11.0, so the
+  catalog offered it to servers it could not actually load on. It is now built
+  against the 10.11.0 floor and loads across the whole 10.11.x line.

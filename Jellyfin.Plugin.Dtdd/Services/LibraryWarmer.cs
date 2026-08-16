@@ -58,8 +58,23 @@ public class LibraryWarmer
     /// <summary>
     /// Kick off a warm if none is in flight. Returns true if this call
     /// started one, false if a previous warm is still running.
+    ///
+    /// <para>
+    /// <b>Takes no CancellationToken by design.</b> The caller is
+    /// <c>POST /DTDD/scan</c>, which returns <c>202 Accepted</c> immediately;
+    /// ASP.NET Core then cancels the request's token while this warm is still
+    /// walking the library at <see cref="PerRequestDelay"/> per item. Passing
+    /// that token in (as this method used to) killed the warm within a
+    /// fraction of a second — reproduced on a minimal Kestrel app, which got
+    /// through 1 of 10 iterations before OperationCanceledException. The work
+    /// deliberately outlives the request, so it runs on
+    /// <see cref="CancellationToken.None"/> and ends only by completing or by
+    /// the process exiting. Per-item cache writes are transactional, so an
+    /// interrupted warm just resumes on the next run. Do not re-introduce a
+    /// request-scoped token here.
+    /// </para>
     /// </summary>
-    public bool TryStartBackground(CancellationToken cancellationToken)
+    public bool TryStartBackground()
     {
         if (Interlocked.CompareExchange(ref _running, 1, 0) != 0)
         {
@@ -67,23 +82,21 @@ public class LibraryWarmer
             return false;
         }
 
-        _ = Task.Run(
-            async () =>
+        _ = Task.Run(async () =>
+        {
+            try
             {
-                try
-                {
-                    await RunAsync(cancellationToken).ConfigureAwait(false);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Library warm failed");
-                }
-                finally
-                {
-                    Interlocked.Exchange(ref _running, 0);
-                }
-            },
-            cancellationToken);
+                await RunAsync(CancellationToken.None).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Library warm failed");
+            }
+            finally
+            {
+                Interlocked.Exchange(ref _running, 0);
+            }
+        });
 
         return true;
     }
