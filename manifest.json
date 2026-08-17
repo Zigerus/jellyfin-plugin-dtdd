@@ -9,6 +9,14 @@
     "imageUrl": "",
     "versions": [
       {
+        "version": "0.2.1.0",
+        "changelog": "Two fixes, both of which could stop the plugin working for you.\n\n- **\"Save phobias\" now actually scans your library.** The scan that runs after\n  you save your phobia list was being cancelled the moment the save request\n  finished, so it only ever got through an item or two before stopping\n  silently. It now runs to completion, which means badges start filling in\n  right after you save instead of waiting for the weekly task \u2014 which is off\n  by default, so for most installs nothing was filling them in at all.\n- **Fixed installing on Jellyfin 10.11.0 through 10.11.7.** The plugin\n  advertised itself as compatible with Jellyfin 10.11.0 and up, but was built\n  against 10.11.8, so the catalog offered it to servers where it then failed\n  to load. It is now built against 10.11.0 and works across the whole 10.11.x\n  line. If the plugin previously refused to load for you, this release fixes\n  it \u2014 no configuration changes needed, your cache and phobia lists are kept.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/Zigerus/jellyfin-plugin-dtdd/releases/download/v0.2.1.0/Jellyfin.Plugin.Dtdd_0.2.1.0.zip",
+        "checksum": "11EA71023328A362D4CC2A70BEE67760",
+        "timestamp": "2026-08-17T05:59:36"
+      },
+      {
         "version": "0.2.0.0",
         "changelog": "- **Badges now explain themselves.** Hovering a verdict badge lists each\n  matched phobia on its own line with the community's yes/no vote counts, and\n  selecting the badge opens the same breakdown as a dialog \u2014 useful on touch\n  screens and TVs, where there is no hover.\n- **Works with a TV remote.** Verdict badges are now reachable with the\n  directional pad, and the remote's Back button closes plugin dialogs instead\n  of navigating away from the item page and stranding them on screen.\n- **Finds far more of your library.** Title lookups moved to DoesTheDogDie's\n  v3 API and now try exact IMDB and TMDB matches before falling back to a\n  title search, which resolves many titles the old fuzzy search missed \u2014\n  anime series especially.\n- **The phobia picker is fully categorised.** The topic list is now seeded in\n  one pass from the full DoesTheDogDie catalog, so every topic appears under\n  its proper category instead of collecting in \"Uncategorized\" over time.",
         "targetAbi": "10.11.0.0",

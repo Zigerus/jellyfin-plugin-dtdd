@@ -1,7 +1,7 @@
 ---
 name: "DoesTheDogDie"
 guid: "4479e434-651e-48f7-a2ee-bec0bdadec5e"
-version: "0.2.0.0"
+version: "0.2.1.0"
 targetAbi: "10.11.0.0"
 framework: "net9.0"
 overview: "Per-user content warnings driven by doesthedogdie.com"
