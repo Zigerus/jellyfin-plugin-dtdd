@@ -9,8 +9,10 @@ Surfaces a **Safe** / **Not Safe** badge on the item detail page, computed per J
 Installable via the Jellyfin plugin catalog (see Install below). Active development; see the Roadmap section for v1.x ideas.
 
 - Plugin GUID: `4479e434-651e-48f7-a2ee-bec0bdadec5e`
-- Target Jellyfin ABI: `10.11.0.0`
+- Target Jellyfin ABI: `10.11.0.0` (loads across the whole 10.11.x line)
 - .NET target: `net9.0`
+
+Patch notes for every release are in [CHANGELOG.md](CHANGELOG.md); the same text is published to the plugin catalog.
 
 ## Prerequisites
 

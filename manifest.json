@@ -10,7 +10,7 @@
     "versions": [
       {
         "version": "0.2.0.0",
-        "changelog": "v0.2.0.0",
+        "changelog": "- **Badges now explain themselves.** Hovering a verdict badge lists each\n  matched phobia on its own line with the community's yes/no vote counts, and\n  selecting the badge opens the same breakdown as a dialog \u2014 useful on touch\n  screens and TVs, where there is no hover.\n- **Works with a TV remote.** Verdict badges are now reachable with the\n  directional pad, and the remote's Back button closes plugin dialogs instead\n  of navigating away from the item page and stranding them on screen.\n- **Finds far more of your library.** Title lookups moved to DoesTheDogDie's\n  v3 API and now try exact IMDB and TMDB matches before falling back to a\n  title search, which resolves many titles the old fuzzy search missed \u2014\n  anime series especially.\n- **The phobia picker is fully categorised.** The topic list is now seeded in\n  one pass from the full DoesTheDogDie catalog, so every topic appears under\n  its proper category instead of collecting in \"Uncategorized\" over time.",
         "targetAbi": "10.11.0.0",
         "sourceUrl": "https://github.com/Zigerus/jellyfin-plugin-dtdd/releases/download/v0.2.0.0/Jellyfin.Plugin.Dtdd_0.2.0.0.zip",
         "checksum": "6A6EC56AD3A29CED34E5775EEB978B3B",
@@ -18,7 +18,7 @@
       },
       {
         "version": "0.1.0.0",
-        "changelog": "v0.1.0.0",
+        "changelog": "Initial release.\n\n- Per-user **Safe** / **Not Safe** / **Not in database** badge on movie and TV\n  detail pages, computed from each Jellyfin user's own phobia topic list.\n- Per-user phobia picker under user Settings, so household members configure\n  their own list without needing admin access.\n- Local cache of DoesTheDogDie lookups with a configurable TTL, plus an\n  optional weekly prefetch task for warming the whole library.\n- DoesTheDogDie link in Jellyfin's external-IDs row for resolved titles.",
         "targetAbi": "10.11.0.0",
         "sourceUrl": "https://github.com/Zigerus/jellyfin-plugin-dtdd/releases/download/v0.1.0.0/Jellyfin.Plugin.Dtdd_0.1.0.0.zip",
         "checksum": "8B9A10A6147BB1133AF09E33860983D7",

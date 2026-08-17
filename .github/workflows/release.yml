@@ -68,6 +68,36 @@ jobs:
           dotnet restore
           dotnet build Jellyfin.Plugin.Dtdd -c Release --nologo --no-restore
 
+      - name: Extract patch notes from CHANGELOG.md
+        # The catalog entry's changelog is what users actually read in
+        # Dashboard -> Plugins -> Catalog. It used to be the literal string
+        # "v0.2.0.0", which tells them nothing. Pull the matching
+        # "## v<version>" section out of CHANGELOG.md instead, and fail the
+        # release if it's missing so we can't ship with empty patch notes.
+        run: |
+          python3 - <<'PY' >> "$GITHUB_ENV"
+          import os, re
+          version = os.environ["VERSION"]
+          try:
+              text = open("CHANGELOG.md", encoding="utf-8").read()
+          except FileNotFoundError:
+              raise SystemExit(f"::error::CHANGELOG.md not found; add a '## v{version}' section")
+
+          # Body between this version's heading and the next "## " heading.
+          match = re.search(
+              rf"^##\s+v{re.escape(version)}\s*$(.*?)(?=^##\s|\Z)",
+              text, re.MULTILINE | re.DOTALL)
+          if not match or not match.group(1).strip():
+              raise SystemExit(
+                  f"::error::No '## v{version}' section in CHANGELOG.md. "
+                  "Add the patch notes for this release before tagging.")
+
+          print("CHANGELOG_NOTES<<CHANGELOG_EOF")
+          print(match.group(1).strip())
+          print("CHANGELOG_EOF")
+          PY
+          echo "Patch notes resolved for $VERSION"
+
       - name: Package zip + meta.json
         run: |
           set -e
@@ -82,7 +112,7 @@ jobs:
           import json, os
           print(json.dumps({
               "category": "General",
-              "changelog": f"v{os.environ['VERSION']}",
+              "changelog": os.environ["CHANGELOG_NOTES"],
               "description": "Per-user content warnings driven by doesthedogdie.com.",
               "guid": "4479e434-651e-48f7-a2ee-bec0bdadec5e",
               "name": "DoesTheDogDie",
@@ -119,7 +149,7 @@ jobs:
 
           entry = {
               "version": VERSION,
-              "changelog": f"v{VERSION}",
+              "changelog": os.environ["CHANGELOG_NOTES"],
               "targetAbi": "10.11.0.0",
               "sourceUrl": f"https://github.com/{REPO}/releases/download/{TAG}/Jellyfin.Plugin.Dtdd_{VERSION}.zip",
               "checksum": CHECKSUM,
