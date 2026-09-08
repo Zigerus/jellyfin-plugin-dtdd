@@ -25,12 +25,14 @@ Headings must be `## v<4-part-version>` to be picked up.
 
 Two fixes, both of which could stop the plugin working for you.
 
-- **"Save phobias" now actually scans your library.** The scan that runs after
-  you save your phobia list was being cancelled the moment the save request
-  finished, so it only ever got through an item or two before stopping
-  silently. It now runs to completion, which means badges start filling in
-  right after you save instead of waiting for the weekly task — which is off
-  by default, so for most installs nothing was filling them in at all.
+- **Fixed the background library scan stopping almost as soon as it started.** The
+  scan behind the plugin's scan endpoint and the "Prefetch DoesTheDogDie
+  warnings" task was tied to the HTTP request that triggered it, so it was
+  cancelled the moment that request completed and only ever processed an item
+  or two. It now runs to completion. Note that saving your phobia list does not
+  start a scan: badges fill in as you open items, or in bulk via the weekly
+  task (off by default; an admin can enable it or run it once from Dashboard →
+  Scheduled Tasks).
 - **Fixed installing on Jellyfin 10.11.0 through 10.11.7.** The plugin
   advertised itself as compatible with Jellyfin 10.11.0 and up, but was built
   against 10.11.8, so the catalog offered it to servers where it then failed
