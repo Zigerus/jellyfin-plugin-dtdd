@@ -13,8 +13,10 @@
 //      Enter/Space) opens a small dialog with the same data, styled like the
 //      picker (touch/TV users have no hover).
 //
-// Picker save flow: PUT /DTDD/prefs → POST /DTDD/scan (background library
-// warm) → close modal → re-render badge for current item.
+// Picker save flow: PUT /DTDD/prefs → close modal → re-render badge for the
+// current item. Saving deliberately does NOT start a library scan (the
+// POST /DTDD/scan kickoff was removed in 2ef1f7a); bulk warming is the weekly
+// task or an admin running it. Kept that way on purpose (Nathan, 2026-09-08).
 //
 // All styling via Jellyfin theme CSS variables with sensible fallbacks.
 
