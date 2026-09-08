@@ -1,10 +1,32 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net9.0</TargetFramework>
+    <!-- Build target selector. One source, two artifacts — never one DLL for
+         both runtimes (Jellyfin 12 moved to .NET 10 and changed plugin
+         interfaces, so a 10.11 build is not loadable on 12 and vice versa):
+           JellyfinTarget=jf12 -> Jellyfin 12.x,   net10.0 (default)
+           JellyfinTarget=jf10 -> Jellyfin 10.11.x, net9.0
+         Select with `dotnet build -p:JellyfinTarget=jf10`. Each target
+         restores its own assets, so do not pass -\-no-restore when switching
+         targets in one tree. Same pattern as JavaScript Injector 4.0. -->
+    <JellyfinTarget Condition="'$(JellyfinTarget)' == ''">jf12</JellyfinTarget>
     <RootNamespace>Jellyfin.Plugin.Dtdd</RootNamespace>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(JellyfinTarget)' == 'jf12'">
+    <TargetFramework>net10.0</TargetFramework>
+    <JellyfinVersion>12.0.0</JellyfinVersion>
+    <JellyfinTargetAbi>12.0.0.0</JellyfinTargetAbi>
+    <MicrosoftDataSqliteVersion>10.0.11</MicrosoftDataSqliteVersion>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(JellyfinTarget)' == 'jf10'">
+    <TargetFramework>net9.0</TargetFramework>
+    <JellyfinVersion>10.11.0</JellyfinVersion>
+    <JellyfinTargetAbi>10.11.0.0</JellyfinTargetAbi>
+    <MicrosoftDataSqliteVersion>9.0.10</MicrosoftDataSqliteVersion>
   </PropertyGroup>
 
   <ItemGroup>
@@ -21,14 +43,17 @@
          PluginManager.cs), so the catalog offers this plugin to every 10.11.x
          server. Pinning above the floor ships an artifact that cannot load on
          the lower half of its own declared range: the previous 10.11.8 pin was
-         broken for 10.11.0-10.11.7. Keep this equal to targetAbi. -->
-    <PackageReference Include="Jellyfin.Controller" Version="10.11.0">
+         broken for 10.11.0-10.11.7. Keep JellyfinVersion (above, per target)
+         equal to that target's ABI floor: 10.11.0 for jf10, 12.0.0 for jf12. -->
+    <PackageReference Include="Jellyfin.Controller" Version="$(JellyfinVersion)">
       <ExcludeAssets>runtime</ExcludeAssets>
     </PackageReference>
-    <PackageReference Include="Jellyfin.Model" Version="10.11.0">
+    <PackageReference Include="Jellyfin.Model" Version="$(JellyfinVersion)">
       <ExcludeAssets>runtime</ExcludeAssets>
     </PackageReference>
-    <PackageReference Include="Microsoft.Data.Sqlite" Version="9.0.10" />
+    <!-- Not shipped in the zip: resolves from the host at runtime, so track the
+         host's EF Core line per target (EF Core 9 on 10.11, EF Core 10 on 12). -->
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="$(MicrosoftDataSqliteVersion)" />
     <!-- Newtonsoft.Json is required ONLY for the JS Injector reflection contract
          (its PluginInterface.RegisterScript accepts a JObject). System.Text.Json
          is used everywhere else. Pinned to 13.0.1 to match JS Injector's pin so

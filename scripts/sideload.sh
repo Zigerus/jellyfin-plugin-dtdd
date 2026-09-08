@@ -6,6 +6,10 @@
 # this script is the fast dev-iteration path for testing before tagging.
 #
 # Flags:
+#   --target=jf10|jf12  Which Jellyfin line to build for (default: jf10 —
+#                       Jellyfin 10.11.x / net9.0; jf12 = Jellyfin 12.x /
+#                       net10.0). Always passed explicitly to dotnet; the
+#                       csproj default is NOT relied on.
 #   --no-restart        Sideload the plugin but skip the restart step entirely
 #   --restart-yes       Skip the interactive confirmation and restart anyway
 #                       (intended for "I know what I'm doing" reruns; don't
@@ -53,8 +57,11 @@ DOTNET="${DOTNET:-$HOME/.dotnet/dotnet}"
 # Flags
 # -----------------------------------------------------------------------------
 RESTART_MODE="prompt"   # prompt | yes | no
+TARGET="jf10"           # jf10 (Jellyfin 10.11.x, net9.0) | jf12 (Jellyfin 12.x, net10.0)
 for arg in "$@"; do
     case "$arg" in
+        --target=jf10)   TARGET="jf10" ;;
+        --target=jf12)   TARGET="jf12" ;;
         --no-restart)    RESTART_MODE="no" ;;
         --restart-yes)   RESTART_MODE="yes" ;;
         -h|--help)
@@ -82,15 +89,19 @@ fi
 # -----------------------------------------------------------------------------
 # 1) Build
 # -----------------------------------------------------------------------------
-echo "==> Building Release configuration"
-"$DOTNET" build "$PROJECT_DIR" -c Release --nologo
+case "$TARGET" in
+    jf10) TFM="net9.0";  TARGET_ABI="10.11.0.0" ;;
+    jf12) TFM="net10.0"; TARGET_ABI="12.0.0.0" ;;
+esac
+echo "==> Building Release configuration for $TARGET ($TFM, targetAbi $TARGET_ABI)"
+# No --no-restore: each JellyfinTarget restores its own assets.
+"$DOTNET" build "$PROJECT_DIR" -c Release --nologo -p:JellyfinTarget="$TARGET"
 
 # -----------------------------------------------------------------------------
 # 2) Read version + GUID + manifest fields
 # -----------------------------------------------------------------------------
 VERSION="$(grep -oP '<Version>\K[^<]+' "$PROPS_FILE")"
 GUID="$(grep -oP '^guid:\s*"\K[^"]+' "$BUILD_YAML")"
-TARGET_ABI="$(grep -oP '^targetAbi:\s*"\K[^"]+' "$BUILD_YAML")"
 PLUGIN_NAME="$(grep -oP '^name:\s*"\K[^"]+' "$BUILD_YAML")"
 OWNER="$(grep -oP '^owner:\s*"\K[^"]+' "$BUILD_YAML")"
 
@@ -99,7 +110,7 @@ if [[ -z "$VERSION" || -z "$GUID" ]]; then
     exit 1
 fi
 
-DLL_PATH="$PROJECT_DIR/bin/Release/net9.0/Jellyfin.Plugin.Dtdd.dll"
+DLL_PATH="$PROJECT_DIR/bin/Release/$TFM/Jellyfin.Plugin.Dtdd.dll"
 if [[ ! -f "$DLL_PATH" ]]; then
     echo "ERROR: build artifact missing at $DLL_PATH" >&2
     exit 1
@@ -131,7 +142,7 @@ cat > "$STAGE/meta.json" <<EOF
 }
 EOF
 
-ZIP_NAME="Jellyfin.Plugin.Dtdd_$VERSION.zip"
+ZIP_NAME="Jellyfin.Plugin.Dtdd_${VERSION}_${TARGET_ABI%.0}.zip"
 ZIP_PATH="$STAGE/$ZIP_NAME"
 # Use Python's zipfile rather than `zip` so this script works on hosts where
 # the `zip` binary isn't installed (not every dev machine ships it).

@@ -8,6 +8,19 @@ catalog by `.github/workflows/release.yml`, so this file is what users read in
 
 Headings must be `## v<4-part-version>` to be picked up.
 
+## v0.3.0.0
+
+- **Works on Jellyfin 12.** Jellyfin 12 moved to .NET 10 and changed several
+  plugin interfaces, so plugins built for 10.11 do not load on it. Every
+  release now ships two builds — one for Jellyfin 12 and one for Jellyfin
+  10.11 — and the catalog offers your server the right one automatically.
+  Nothing else changes: your DoesTheDogDie API key, cached verdicts, and each
+  user's phobia list are all kept across the upgrade.
+- **Still requires JavaScript Injector.** On Jellyfin 12 you need JavaScript
+  Injector 4.0.0.0 or newer installed from its Jellyfin 12 repository
+  (`https://raw.githubusercontent.com/n00bcodr/jellyfin-plugins/main/12/manifest.json`);
+  the badge does not render without it.
+
 ## v0.2.1.0
 
 Two fixes, both of which could stop the plugin working for you.

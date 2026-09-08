@@ -9,8 +9,7 @@ Surfaces a **Safe** / **Not Safe** badge on the item detail page, computed per J
 Installable via the Jellyfin plugin catalog (see Install below). Active development; see the Roadmap section for v1.x ideas.
 
 - Plugin GUID: `4479e434-651e-48f7-a2ee-bec0bdadec5e`
-- Target Jellyfin ABI: `10.11.0.0` (loads across the whole 10.11.x line)
-- .NET target: `net9.0`
+- Supported Jellyfin versions: **12.x** (build targets ABI `12.0.0.0`, `net10.0`) and **10.11.x** (build targets ABI `10.11.0.0`, `net9.0`). Each release ships both builds; the catalog offers your server the matching one.
 
 Patch notes for every release are in [CHANGELOG.md](CHANGELOG.md); the same text is published to the plugin catalog.
 
@@ -25,7 +24,7 @@ Install order:
 
 ## Install
 
-1. Install [JavaScript Injector](https://github.com/n00bcodr/Jellyfin-JavaScript-Injector) first (required for the UI badge).
+1. Install [JavaScript Injector](https://github.com/n00bcodr/Jellyfin-JavaScript-Injector) first (required for the UI badge). On Jellyfin 12 add its Jellyfin 12 repository (`https://raw.githubusercontent.com/n00bcodr/jellyfin-plugins/main/12/manifest.json`); on 10.11 use the `10.11` one.
 2. In Jellyfin: **Dashboard → Plugins → Catalog → ⚙ (gear icon, top-right) → ➕**.
 3. Add this repository:
 
@@ -75,6 +74,10 @@ _Screenshots are staged with fictional demo titles, original placeholder artwork
 ![Phobia picker modal](docs/screenshots/picker.png)
 
 ## Development
+
+### Building
+
+`dotnet build Jellyfin.Plugin.Dtdd -c Release` builds the Jellyfin 12 (.NET 10) artifact by default; add `-p:JellyfinTarget=jf10` for the Jellyfin 10.11 (.NET 9) artifact. Both SDKs are needed to build both. Release tags build and publish both zips and list both in `manifest.json` under the same version — the Jellyfin 12 entry first, because Jellyfin's catalog sorts compatible entries by version with a stable sort and installs the first one.
 
 ### Client-side UI notes (since v0.2)
 
