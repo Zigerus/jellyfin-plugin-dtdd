@@ -46,10 +46,13 @@ jobs:
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "TAG=v$VERSION" >> "$GITHUB_ENV"
 
-      - name: Setup .NET 9
+      - name: Setup .NET 9 + 10
+        # Two SDKs: the jf10 artifact is net9.0, the jf12 artifact is net10.0.
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: '9.0.x'
+          dotnet-version: |
+            9.0.x
+            10.0.x
 
       - name: Stamp version into Directory.Build.props
         run: |
@@ -63,10 +66,16 @@ jobs:
           sed -i "s|^version:.*|version: \"${VERSION}\"|" build.yaml
           cat build.yaml
 
-      - name: Restore + build Release
+      - name: Build Release (both Jellyfin targets)
+        # One source, two artifacts. The TargetFramework is conditional on
+        # JellyfinTarget, so each build must restore its own assets — a shared
+        # `dotnet restore` + `--no-restore` only writes assets for one target
+        # and the other build fails on the assets file.
         run: |
-          dotnet restore
-          dotnet build Jellyfin.Plugin.Dtdd -c Release --nologo --no-restore
+          dotnet build Jellyfin.Plugin.Dtdd -c Release --nologo -p:JellyfinTarget=jf12
+          dotnet build Jellyfin.Plugin.Dtdd -c Release --nologo -p:JellyfinTarget=jf10
+          ls -la Jellyfin.Plugin.Dtdd/bin/Release/net10.0/Jellyfin.Plugin.Dtdd.dll \
+                 Jellyfin.Plugin.Dtdd/bin/Release/net9.0/Jellyfin.Plugin.Dtdd.dll
 
       - name: Extract patch notes from CHANGELOG.md
         # The catalog entry's changelog is what users actually read in
@@ -98,17 +107,24 @@ jobs:
           PY
           echo "Patch notes resolved for $VERSION"
 
-      - name: Package zip + meta.json
+      - name: Package zips + meta.json (one per Jellyfin target)
         run: |
           set -e
-          mkdir -p staging
-          cp Jellyfin.Plugin.Dtdd/bin/Release/net9.0/Jellyfin.Plugin.Dtdd.dll staging/
-
           TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%S")
+          echo "TIMESTAMP=$TIMESTAMP" >> "$GITHUB_ENV"
 
-          # Pass TIMESTAMP via env to the python heredoc (single-quoted PY
-          # means shell doesn't interpolate; python reads via os.environ).
-          TIMESTAMP="$TIMESTAMP" VERSION="$VERSION" python3 - <<'PY' >staging/meta.json
+          # target | TFM | targetAbi. The zip name carries the ABI floor so the
+          # two artifacts of one version are distinguishable on the Release page.
+          for spec in "jf12 net10.0 12.0.0.0" "jf10 net9.0 10.11.0.0"; do
+            set -- $spec
+            TARGET=$1; TFM=$2; ABI=$3
+            STAGING="staging-$TARGET"
+            mkdir -p "$STAGING"
+            cp "Jellyfin.Plugin.Dtdd/bin/Release/$TFM/Jellyfin.Plugin.Dtdd.dll" "$STAGING/"
+
+            # Pass values via env to the python heredoc (single-quoted PY
+            # means shell doesn't interpolate; python reads via os.environ).
+            TIMESTAMP="$TIMESTAMP" VERSION="$VERSION" ABI="$ABI" python3 - <<'PY' >"$STAGING/meta.json"
           import json, os
           print(json.dumps({
               "category": "General",
@@ -118,51 +134,64 @@ jobs:
               "name": "DoesTheDogDie",
               "overview": "Per-user content warnings driven by doesthedogdie.com",
               "owner": "Zigerus",
-              "targetAbi": "10.11.0.0",
+              "targetAbi": os.environ["ABI"],
               "timestamp": os.environ["TIMESTAMP"],
               "version": os.environ["VERSION"],
           }, indent=2))
           PY
 
-          ZIP="Jellyfin.Plugin.Dtdd_${VERSION}.zip"
-          ( cd staging && zip -j "../${ZIP}" Jellyfin.Plugin.Dtdd.dll meta.json )
-
-          CHECKSUM=$(md5sum "$ZIP" | awk '{print toupper($1)}')
-          SIZE=$(stat -c%s "$ZIP")
-          # Persist for the Release + manifest steps that follow.
-          {
-            echo "ZIP=$ZIP"
-            echo "CHECKSUM=$CHECKSUM"
-            echo "TIMESTAMP=$TIMESTAMP"
-          } >> "$GITHUB_ENV"
-          echo "Built $ZIP ($SIZE bytes, md5=$CHECKSUM)"
+            ZIP="Jellyfin.Plugin.Dtdd_${VERSION}_${ABI%.0}.zip"
+            ( cd "$STAGING" && zip -j "../${ZIP}" Jellyfin.Plugin.Dtdd.dll meta.json )
+            CHECKSUM=$(md5sum "$ZIP" | awk '{print toupper($1)}')
+            SIZE=$(stat -c%s "$ZIP")
+            echo "Built $ZIP ($SIZE bytes, md5=$CHECKSUM, targetAbi=$ABI)"
+            # Persist per-target values for the manifest + Release steps.
+            {
+              echo "ZIP_${TARGET}=$ZIP"
+              echo "CHECKSUM_${TARGET}=$CHECKSUM"
+            } >> "$GITHUB_ENV"
+          done
 
       - name: Update manifest.json
+        # Two entries per release, SAME version number, Jellyfin 12 entry
+        # FIRST. This ordering is load-bearing: Jellyfin's catalog filters
+        # entries to targetAbi <= server version, then sorts by version with
+        # OrderByDescending (a stable sort), so entries with equal versions
+        # keep manifest order and the server installs the first one. On a 12
+        # server both entries survive the filter and the 12 build wins; on
+        # 10.11 the 12 entry is filtered out and the 10.11 build is the only
+        # candidate. Same shape as JavaScript Injector's manifest.
         run: |
           python3 - <<'PY'
           import json, os
           VERSION = os.environ["VERSION"]
-          CHECKSUM = os.environ["CHECKSUM"]
           TIMESTAMP = os.environ["TIMESTAMP"]
           REPO = os.environ["GITHUB_REPOSITORY"]
           TAG = os.environ["TAG"]
 
-          entry = {
-              "version": VERSION,
-              "changelog": os.environ["CHANGELOG_NOTES"],
-              "targetAbi": "10.11.0.0",
-              "sourceUrl": f"https://github.com/{REPO}/releases/download/{TAG}/Jellyfin.Plugin.Dtdd_{VERSION}.zip",
-              "checksum": CHECKSUM,
-              "timestamp": TIMESTAMP,
-          }
+          def entry(abi, zip_name, checksum):
+              return {
+                  "version": VERSION,
+                  "changelog": os.environ["CHANGELOG_NOTES"],
+                  "targetAbi": abi,
+                  "sourceUrl": f"https://github.com/{REPO}/releases/download/{TAG}/{zip_name}",
+                  "checksum": checksum,
+                  "timestamp": TIMESTAMP,
+              }
+
+          new_entries = [
+              entry("12.0.0.0", os.environ["ZIP_jf12"], os.environ["CHECKSUM_jf12"]),
+              entry("10.11.0.0", os.environ["ZIP_jf10"], os.environ["CHECKSUM_jf10"]),
+          ]
 
           with open("manifest.json") as f:
               data = json.load(f)
           plugin = data[0]
           plugin.setdefault("versions", [])
-          # Drop any existing entry for the same version (idempotent re-runs).
+          # Drop any existing entries for the same version (idempotent re-runs),
+          # then prepend both new ones, 12 first.
           plugin["versions"] = [v for v in plugin["versions"] if v.get("version") != VERSION]
-          plugin["versions"].insert(0, entry)
+          plugin["versions"] = new_entries + plugin["versions"]
 
           with open("manifest.json", "w") as f:
               json.dump(data, f, indent=2)
@@ -175,7 +204,9 @@ jobs:
         with:
           tag_name: ${{ env.TAG }}
           name: ${{ env.TAG }}
-          files: ${{ env.ZIP }}
+          files: |
+            ${{ env.ZIP_jf12 }}
+            ${{ env.ZIP_jf10 }}
           generate_release_notes: true
           fail_on_unmatched_files: true
 
