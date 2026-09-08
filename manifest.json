@@ -9,6 +9,22 @@
     "imageUrl": "",
     "versions": [
       {
+        "version": "0.3.0.0",
+        "changelog": "- **Works on Jellyfin 12.** Jellyfin 12 moved to .NET 10 and changed several\n  plugin interfaces, so plugins built for 10.11 do not load on it. Every\n  release now ships two builds \u2014 one for Jellyfin 12 and one for Jellyfin\n  10.11 \u2014 and the catalog offers your server the right one automatically.\n  Nothing else changes: your DoesTheDogDie API key, cached verdicts, and each\n  user's phobia list are all kept across the upgrade.\n- **Still requires JavaScript Injector.** On Jellyfin 12 you need JavaScript\n  Injector 4.0.0.0 or newer installed from its Jellyfin 12 repository\n  (`https://raw.githubusercontent.com/n00bcodr/jellyfin-plugins/main/12/manifest.json`);\n  the badge does not render without it.",
+        "targetAbi": "12.0.0.0",
+        "sourceUrl": "https://github.com/Zigerus/jellyfin-plugin-dtdd/releases/download/v0.3.0.0/Jellyfin.Plugin.Dtdd_0.3.0.0_12.0.0.zip",
+        "checksum": "072993D3F96ACDCA419B0451FA5A9D33",
+        "timestamp": "2026-09-08T18:15:52"
+      },
+      {
+        "version": "0.3.0.0",
+        "changelog": "- **Works on Jellyfin 12.** Jellyfin 12 moved to .NET 10 and changed several\n  plugin interfaces, so plugins built for 10.11 do not load on it. Every\n  release now ships two builds \u2014 one for Jellyfin 12 and one for Jellyfin\n  10.11 \u2014 and the catalog offers your server the right one automatically.\n  Nothing else changes: your DoesTheDogDie API key, cached verdicts, and each\n  user's phobia list are all kept across the upgrade.\n- **Still requires JavaScript Injector.** On Jellyfin 12 you need JavaScript\n  Injector 4.0.0.0 or newer installed from its Jellyfin 12 repository\n  (`https://raw.githubusercontent.com/n00bcodr/jellyfin-plugins/main/12/manifest.json`);\n  the badge does not render without it.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/Zigerus/jellyfin-plugin-dtdd/releases/download/v0.3.0.0/Jellyfin.Plugin.Dtdd_0.3.0.0_10.11.0.zip",
+        "checksum": "25D864E4CB723861142D03B2686DB917",
+        "timestamp": "2026-09-08T18:15:52"
+      },
+      {
         "version": "0.2.1.0",
         "changelog": "Two fixes, both of which could stop the plugin working for you.\n\n- **\"Save phobias\" now actually scans your library.** The scan that runs after\n  you save your phobia list was being cancelled the moment the save request\n  finished, so it only ever got through an item or two before stopping\n  silently. It now runs to completion, which means badges start filling in\n  right after you save instead of waiting for the weekly task \u2014 which is off\n  by default, so for most installs nothing was filling them in at all.\n- **Fixed installing on Jellyfin 10.11.0 through 10.11.7.** The plugin\n  advertised itself as compatible with Jellyfin 10.11.0 and up, but was built\n  against 10.11.8, so the catalog offered it to servers where it then failed\n  to load. It is now built against 10.11.0 and works across the whole 10.11.x\n  line. If the plugin previously refused to load for you, this release fixes\n  it \u2014 no configuration changes needed, your cache and phobia lists are kept.",
         "targetAbi": "10.11.0.0",
