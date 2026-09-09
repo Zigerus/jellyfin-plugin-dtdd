@@ -9,6 +9,22 @@
     "imageUrl": "https://raw.githubusercontent.com/Zigerus/jellyfin-plugin-dtdd/main/Icons/dtdd-icon.webp",
     "versions": [
       {
+        "version": "0.3.1.0",
+        "changelog": "- **New catalog icon.** The plugin now has an icon in Dashboard \u2192 Plugins: an\n  animated shield that turns from red to green and then rests. It is a small\n  animated WebP (under 70 KB) that plays three times when the page opens and\n  then holds still, so it costs nothing to keep on screen.\n- No functional changes. The plugin code is identical to v0.3.0.0, so this\n  update is safe to take at any time; your API key, cached verdicts, and phobia\n  lists are untouched.",
+        "targetAbi": "12.0.0.0",
+        "sourceUrl": "https://github.com/Zigerus/jellyfin-plugin-dtdd/releases/download/v0.3.1.0/Jellyfin.Plugin.Dtdd_0.3.1.0_12.0.0.zip",
+        "checksum": "8DBBA7C59BE8DBC95776582604CEBAE4",
+        "timestamp": "2026-09-09T00:07:57"
+      },
+      {
+        "version": "0.3.1.0",
+        "changelog": "- **New catalog icon.** The plugin now has an icon in Dashboard \u2192 Plugins: an\n  animated shield that turns from red to green and then rests. It is a small\n  animated WebP (under 70 KB) that plays three times when the page opens and\n  then holds still, so it costs nothing to keep on screen.\n- No functional changes. The plugin code is identical to v0.3.0.0, so this\n  update is safe to take at any time; your API key, cached verdicts, and phobia\n  lists are untouched.",
+        "targetAbi": "10.11.0.0",
+        "sourceUrl": "https://github.com/Zigerus/jellyfin-plugin-dtdd/releases/download/v0.3.1.0/Jellyfin.Plugin.Dtdd_0.3.1.0_10.11.0.zip",
+        "checksum": "4FF33E0E948BB282C66D52B65D7C1D23",
+        "timestamp": "2026-09-09T00:07:57"
+      },
+      {
         "version": "0.3.0.0",
         "changelog": "- **Works on Jellyfin 12.** Jellyfin 12 moved to .NET 10 and changed several\n  plugin interfaces, so plugins built for 10.11 do not load on it. Every\n  release now ships two builds \u2014 one for Jellyfin 12 and one for Jellyfin\n  10.11 \u2014 and the catalog offers your server the right one automatically.\n  Nothing else changes: your DoesTheDogDie API key, cached verdicts, and each\n  user's phobia list are all kept across the upgrade.\n- **Still requires JavaScript Injector.** On Jellyfin 12 you need JavaScript\n  Injector 4.0.0.0 or newer installed from its Jellyfin 12 repository\n  (`https://raw.githubusercontent.com/n00bcodr/jellyfin-plugins/main/12/manifest.json`);\n  the badge does not render without it.",
         "targetAbi": "12.0.0.0",
