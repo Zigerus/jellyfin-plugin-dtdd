@@ -8,6 +8,16 @@ catalog by `.github/workflows/release.yml`, so this file is what users read in
 
 Headings must be `## v<4-part-version>` to be picked up.
 
+## v0.3.1.0
+
+- **New catalog icon.** The plugin now has an icon in Dashboard → Plugins: an
+  animated shield that turns from red to green and then rests. It is a small
+  animated WebP (under 70 KB) that plays three times when the page opens and
+  then holds still, so it costs nothing to keep on screen.
+- No functional changes. The plugin code is identical to v0.3.0.0, so this
+  update is safe to take at any time; your API key, cached verdicts, and phobia
+  lists are untouched.
+
 ## v0.3.0.0
 
 - **Works on Jellyfin 12.** Jellyfin 12 moved to .NET 10 and changed several

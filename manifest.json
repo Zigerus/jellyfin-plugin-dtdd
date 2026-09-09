@@ -6,7 +6,7 @@
     "description": "Surfaces a Safe / Not Safe badge on Jellyfin item detail pages, computed per Jellyfin user from each user's configured phobia topic list. Requires the JavaScript Injector companion plugin to render the UI; backend API works without it.",
     "owner": "Zigerus",
     "category": "General",
-    "imageUrl": "",
+    "imageUrl": "https://raw.githubusercontent.com/Zigerus/jellyfin-plugin-dtdd/main/Icons/dtdd-icon.webp",
     "versions": [
       {
         "version": "0.3.0.0",
