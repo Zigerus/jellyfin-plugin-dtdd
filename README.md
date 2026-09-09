@@ -1,5 +1,9 @@
 # jellyfin-plugin-dtdd
 
+<p align="center">
+  <img src="Icons/dtdd-icon.webp" alt="DoesTheDogDie plugin icon: a shield that turns from red to green" width="480">
+</p>
+
 DoesTheDogDie.com content warnings for Jellyfin, with per-user phobia filtering.
 
 Surfaces a **Safe** / **Not Safe** badge on the item detail page, computed per Jellyfin user from the user's configured phobia topic list. Strict threshold: any single YES vote on any of the user's selected phobias = Not Safe. Selecting the badge opens a breakdown of which phobias matched and how the DTDD community voted on each.
